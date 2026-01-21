@@ -1,0 +1,31 @@
+# Bi-LSTM + PPO Crypto Trading Bot
+# Lopez de Prado Purged Walk-Forward Validation
+
+# Purged Walk-Forward (FREE - Lopez de Prado methods)
+mlfinpy>=0.1.2
+
+# Reinforcement Learning
+stable-baselines3[extra]>=2.0.0
+gymnasium>=0.29.0
+
+# Deep Learning (GPU recommended)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Data & Exchange
+ccxt>=4.0.0
+pandas>=2.0.0
+pyarrow>=14.0.0
+
+# Technical Analysis
+ta>=0.10.0
+
+# Utilities
+requests>=2.31.0
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+tensorboard>=2.14.0
+numpy>=1.24.0
+
+# Testing
+pytest>=7.4.0

@@ -1,0 +1,10 @@
+# Best Reward Parameters from Optuna Study
+# Study: ppo_crypto_rewards_roi
+# Best value: -0.2587
+
+reward_profit = 2.49816047538945
+reward_loss = -0.6232142339752098
+reward_hold_winning = 0.0036599697090570257
+reward_hold_losing = -0.002006707579014817
+reward_unrealized_scale = 0.055245405728306586
+flat_penalty = -0.0009

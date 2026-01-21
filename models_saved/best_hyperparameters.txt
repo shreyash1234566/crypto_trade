@@ -1,0 +1,18 @@
+# Best Hyperparameters from Optuna Study
+# Study: ppo_crypto_trading
+# Best value: -0.0403
+
+learning_rate = 4.4300218067679785e-05
+n_steps = 4096
+batch_size = 128
+n_epochs = 3
+gamma = 0.9795748765484673
+gae_lambda = 0.9452411120905976
+clip_range = 0.11544362537499682
+ent_coef = 0.027864646423661144
+vf_coef = 0.6633063543866614
+max_grad_norm = 0.46769332346688064
+lstm_hidden_size = 256
+net_arch = 'large'
+activation_fn = 'relu'
+ortho_init = False
