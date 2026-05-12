@@ -50,20 +50,16 @@ def cmd_process(args):
         source_timeframe=TIMEFRAME_RAW,
         target_timeframe=args.timeframe
     )
-    
-    print("Adding features...")
-    df = prepare_features(symbol=args.symbol, timeframe=args.timeframe)
-    
+
     if args.fear_greed:
         print("Fetching Fear & Greed Index...")
         fg_df = fetch_fear_greed(days=365)
         if fg_df is not None:
             save_fear_greed(days=365)
             df = merge_fear_greed(df, fg_df)
-            # Re-save with Fear & Greed
-            from config.settings import PROCESSED_DATA_DIR
-            output_file = PROCESSED_DATA_DIR / f"{args.symbol.replace('/', '_')}_{args.timeframe}_features.parquet"
-            df.to_parquet(output_file)
+    
+    print("Adding features...")
+    df = prepare_features(symbol=args.symbol, timeframe=args.timeframe, df=df)
     
     print(f"Processed {len(df):,} candles with {len(df.columns)} features")
 

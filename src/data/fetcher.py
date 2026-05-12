@@ -13,7 +13,8 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from config.settings import (
     RAW_DATA_DIR, SYMBOL, TIMEFRAME_RAW, LOOKBACK_DAYS,
-    BINANCE_API_KEY, BINANCE_SECRET_KEY, BINANCE_TESTNET
+    BINANCE_API_KEY, BINANCE_SECRET_KEY, BINANCE_TESTNET,
+    RAW_OUTLIER_Z_THRESHOLD, WICK_RATIO_THRESHOLD
 )
 
 
@@ -31,6 +32,28 @@ def get_exchange(use_testnet: bool = False):
         exchange.set_sandbox_mode(True)
     
     return exchange
+
+
+def _filter_raw_noise(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
+    """Remove obvious raw-market spikes and malformed candles."""
+    df = df.copy().sort_index()
+
+    # Remove candles with excessive wicks relative to candle body.
+    body = (df['close'] - df['open']).abs()
+    candle_range = (df['high'] - df['low']).abs()
+    wick_ratio = candle_range / (body + 1e-8)
+    df = df[(wick_ratio <= (1.0 / max(WICK_RATIO_THRESHOLD, 1e-6))) | body.isna()]
+
+    # Use returns-based robust filtering to catch single-candle spikes.
+    returns = df['close'].pct_change()
+    rolling_median = returns.rolling(window=window, min_periods=max(10, window // 4)).median()
+    rolling_mad = (returns - rolling_median).abs().rolling(window=window, min_periods=max(10, window // 4)).median()
+    robust_z = (returns - rolling_median).abs() / (1.4826 * rolling_mad + 1e-8)
+    df = df[(robust_z.isna()) | (robust_z <= RAW_OUTLIER_Z_THRESHOLD)]
+
+    # Keep volumes sane.
+    df['volume'] = df['volume'].clip(lower=0)
+    return df
 
 
 def fetch_ohlcv(
@@ -109,6 +132,15 @@ def fetch_ohlcv(
         all_candles,
         columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
     )
+
+    if df.empty:
+        raise ValueError("No candles returned from exchange")
+
+    # Basic data sanity: coerce numeric fields and remove malformed rows
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    df = df.dropna(how='any')
     
     # Convert timestamp to datetime
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -117,6 +149,18 @@ def fetch_ohlcv(
     # Remove duplicates
     df = df[~df.index.duplicated(keep='first')]
     df.sort_index(inplace=True)
+
+    # Remove impossible candles and cap negative volume
+    df = df[(df['high'] >= df[['open', 'close', 'low']].max(axis=1)) &
+            (df['low'] <= df[['open', 'close', 'high']].min(axis=1))]
+    df['volume'] = df['volume'].clip(lower=0)
+    df = df.dropna(how='any')
+
+    # Filter out obvious raw-market noise spikes
+    df = _filter_raw_noise(df)
+
+    if df.empty:
+        raise ValueError("All fetched candles were removed by sanity checks")
     
     print(f"Downloaded {len(df):,} candles from {df.index[0]} to {df.index[-1]}")
     

@@ -105,12 +105,23 @@ REWARD_FLAT_PENALTY = -1e-4   # Penalty when staying flat (encourages engagement
 # =============================================================================
 # FEATURES
 # =============================================================================
+# Noise handling / feature engineering
+PRICE_SMOOTHING_SPAN = 5        # EMA span for denoising raw price series
+OUTLIER_Z_THRESHOLD = 4.0       # Rolling z-score clipping threshold
+NORMALIZATION_CLIP = 5.0        # Clip normalized features to this range
+FEATURE_CORR_THRESHOLD = 0.92   # Drop highly correlated features
+RAW_OUTLIER_Z_THRESHOLD = 8.0    # Stronger threshold for raw candle spike filtering
+RESAMPLE_SMOOTHING_SPAN = 3      # Lightweight smoothing after resampling
+WICK_RATIO_THRESHOLD = 0.12      # Reject candles with excessive wick-to-body noise
+
 FEATURE_COLUMNS = [
-    'open', 'high', 'low', 'close', 'volume',
-    'log_return', 'volatility',
-    'rsi', 'macd', 'macd_signal', 'macd_hist',
-    'bb_upper', 'bb_middle', 'bb_lower', 'bb_pct',
-    'fear_greed'  # Optional, will be NaN if unavailable
+    'close', 'volume',
+    'log_return_norm', 'volatility_norm',
+    'rsi_norm', 'macd_hist_norm',
+    'bb_pct_norm', 'price_range_norm',
+    'volume_change_norm', 'price_ema_ratio_norm',
+    'frac_diff_norm',
+    'fear_greed_norm'  # Optional, will be NaN if unavailable
 ]
 
 # =============================================================================

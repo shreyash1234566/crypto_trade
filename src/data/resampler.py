@@ -8,8 +8,24 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from config.settings import (
     RAW_DATA_DIR, PROCESSED_DATA_DIR, SYMBOL, 
-    TIMEFRAME_RAW, TIMEFRAME_TRADE
+    TIMEFRAME_RAW, TIMEFRAME_TRADE,
+    RESAMPLE_SMOOTHING_SPAN, WICK_RATIO_THRESHOLD
 )
+
+
+def _filter_resampled_noise(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove low-timeframe noise that survives resampling."""
+    df = df.copy().sort_index()
+
+    # Reject candles whose wick structure is suspiciously large.
+    body = (df['close'] - df['open']).abs()
+    candle_range = (df['high'] - df['low']).abs()
+    wick_ratio = candle_range / (body + 1e-8)
+    df = df[(wick_ratio <= (1.0 / max(WICK_RATIO_THRESHOLD, 1e-6))) | body.isna()]
+
+    # Suppress tiny one-bar spikes after aggregation.
+    df['close'] = df['close'].ewm(span=RESAMPLE_SMOOTHING_SPAN, adjust=False).mean()
+    return df
 
 
 def resample_ohlcv(
@@ -33,6 +49,14 @@ def resample_ohlcv(
     }
     
     rule = timeframe_map.get(target_timeframe, '15T')
+
+    # Clean input first to reduce noisy or malformed candles before aggregation
+    df = df.copy().sort_index()
+    df = df[~df.index.duplicated(keep='first')]
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
+    df = df.dropna(how='any')
     
     # Resample using OHLCV aggregation rules
     resampled = df.resample(rule).agg({
@@ -42,6 +66,14 @@ def resample_ohlcv(
         'close': 'last',
         'volume': 'sum'
     }).dropna()
+
+    # Drop candles with invalid structure after aggregation
+    resampled = resampled[(resampled['high'] >= resampled[['open', 'close', 'low']].max(axis=1)) &
+                          (resampled['low'] <= resampled[['open', 'close', 'high']].min(axis=1))]
+
+    # Extra suppression for low-timeframe noise
+    resampled = _filter_resampled_noise(resampled)
+    resampled = resampled.dropna(how='any')
     
     print(f"Resampled from {len(df):,} to {len(resampled):,} candles ({target_timeframe})")
     
