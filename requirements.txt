@@ -20,6 +20,12 @@ pyarrow>=14.0.0
 # Technical Analysis
 ta>=0.10.0
 
+# Feature Selection (LightGBM importance ranking)
+lightgbm>=4.0.0
+
+# Recurrent PPO (LSTM policy for SB3)
+sb3-contrib>=2.0.0
+
 # Utilities
 requests>=2.31.0
 python-dotenv>=1.0.0

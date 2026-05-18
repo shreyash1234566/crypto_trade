@@ -20,7 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from config.settings import (
     SYMBOL, TIMEFRAME_RAW, TIMEFRAME_TRADE, LOOKBACK_DAYS,
     SEQUENCE_LENGTH, DEVICE_LSTM, MODELS_DIR,
-    REWARD_FLAT_PENALTY
+    REWARD_FLAT_PENALTY, FOCAL_LOSS_GAMMA
 )
 
 
@@ -58,14 +58,21 @@ def cmd_process(args):
             save_fear_greed(days=365)
             df = merge_fear_greed(df, fg_df)
     
-    print("Adding features...")
+    print("Adding features (enhanced feature set for 70-75% target)...")
     df = prepare_features(symbol=args.symbol, timeframe=args.timeframe, df=df)
     
-    print(f"Processed {len(df):,} candles with {len(df.columns)} features")
+    print(f"Processed {len(df):,} candles with {len(df.columns)} columns")
 
 
 def cmd_pretrain(args):
-    """Pre-train Bi-LSTM on direction prediction with improved diagnostics and fixes."""
+    """Pre-train Bi-LSTM on direction prediction with enhanced architecture.
+    
+    v2 architecture includes:
+    - 2-layer Bi-LSTM (128→64) with self-attention
+    - Focal Loss (γ=2) for class imbalance
+    - ReduceLROnPlateau scheduler
+    - BatchNorm + LayerNorm for training stability
+    """
     import torch
     import torch.nn as nn
     from torch.utils.data import DataLoader, random_split
@@ -112,7 +119,8 @@ def cmd_pretrain(args):
     
     if imbalance_ratio > 1.15:
         print("⚠️  IMBALANCED CLASSES DETECTED")
-        print("   Applying class weighting to loss function...")
+        if not args.focal_loss:
+            print("   Applying class weighting to loss function...")
         use_class_weights = True
         # Calculate weights: inverse of class frequency
         class_weights = torch.FloatTensor([
@@ -137,8 +145,8 @@ def cmd_pretrain(args):
         correlations[col] = abs(corr)
     
     sorted_corrs = sorted(correlations.items(), key=lambda x: x[1], reverse=True)
-    print("Top 5 most predictive features:")
-    for feat, corr in sorted_corrs[:5]:
+    print("Top 10 most predictive features:")
+    for feat, corr in sorted_corrs[:10]:
         print(f"  {feat}: {corr:.4f}")
     
     max_corr = sorted_corrs[0][1]
@@ -166,10 +174,12 @@ def cmd_pretrain(args):
     # Create dataset
     dataset = SequenceDataset(features, targets, SEQUENCE_LENGTH)
     
-    # Split train/val (80/20)
+    # Split train/val (80/20) — chronological split to avoid leakage
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    # Use sequential split (not random!) to preserve temporal ordering
+    train_dataset = torch.utils.data.Subset(dataset, range(train_size))
+    val_dataset = torch.utils.data.Subset(dataset, range(train_size, train_size + val_size))
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
@@ -178,60 +188,42 @@ def cmd_pretrain(args):
     print(f"Val sequences:   {val_size:,}")
     
     # ============================================================
-    # FIX #4: Reduce learning rate for better convergence
-    # ============================================================
-    if args.lr > 0.0003:
-        print(f"\n⚠️  Learning rate {args.lr} may be too high for LSTM")
-        print("   Consider using --lr 0.0001 or --lr 0.00005")
-    
-    # ============================================================
-    # Create model
+    # Create model (v2 architecture with attention)
     # ============================================================
     print("\n" + "="*60)
-    print("MODEL INITIALIZATION")
+    print("MODEL INITIALIZATION (v2 — Attention BiLSTM)")
     print("="*60)
     
-    model = BiLSTMFeatureExtractor(input_size=len(feature_cols))
+    model = BiLSTMFeatureExtractor(
+        input_size=len(feature_cols),
+        use_attention=args.attention
+    )
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {n_params:,}")
     print(f"Device: {DEVICE_LSTM}")
     print(f"Learning rate: {args.lr}")
     print(f"Batch size: {args.batch_size}")
+    print(f"Attention: {'ON' if args.attention else 'OFF'}")
+    print(f"Loss: {'Focal Loss (γ={})'.format(args.focal_gamma) if args.focal_loss else 'BCE'}")
     
     # ============================================================
-    # FIX #5: Pass class weights to training function
+    # Train
     # ============================================================
     print("\n" + "="*60)
     print("STARTING TRAINING")
     print("="*60)
     
-    if use_class_weights:
-        print("Using weighted loss function")
-    
-    # You'll need to modify train_bilstm to accept class_weights
-    # For now, we'll call it with the existing signature
-    try:
-        history = train_bilstm(
-            model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            epochs=args.epochs,
-            learning_rate=args.lr,
-            patience=args.patience,
-            class_weights=class_weights  # Add this parameter
-        )
-    except TypeError:
-        # If train_bilstm doesn't accept class_weights yet
-        print("⚠️  Class weights not supported by train_bilstm yet")
-        print("   Training without class weights...")
-        history = train_bilstm(
-            model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            epochs=args.epochs,
-            learning_rate=args.lr,
-            patience=args.patience
-        )
+    history = train_bilstm(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        epochs=args.epochs,
+        learning_rate=args.lr,
+        patience=args.patience,
+        class_weights=class_weights if not args.focal_loss else None,
+        use_focal_loss=args.focal_loss,
+        focal_gamma=args.focal_gamma
+    )
     
     # ============================================================
     # Results
@@ -258,9 +250,24 @@ def cmd_pretrain(args):
         print("\nRECOMMENDATIONS:")
         print("1. Try lower learning rate: --lr 0.00005")
         print("2. Increase sequence length in config/settings.py")
-        print("3. Add dropout to model (0.2-0.3)")
-        print("4. Engineer better features")
+        print("3. Increase training data (more days)")
+        print("4. Check feature quality — run process command again")
         print("\nFor now, proceed with --no-lstm for RL training")
+    
+    # Accuracy target assessment
+    print("\n" + "="*60)
+    print("ACCURACY TARGET ASSESSMENT")
+    print("="*60)
+    if best_val_acc >= 0.70:
+        print("🏆 TARGET ACHIEVED: 70%+ directional accuracy!")
+    elif best_val_acc >= 0.65:
+        print("📈 GOOD PROGRESS: 65%+ — close to 70% target")
+        print("   Consider: more epochs, lower LR, or adding features")
+    elif best_val_acc >= 0.55:
+        print("📊 LEARNING DETECTED: 55%+ — model is learning")
+        print("   Consider: more data, hyperparameter tuning")
+    else:
+        print("⚠️  LOW ACCURACY: model may need architectural changes")
 
 
 def cmd_train(args):
@@ -483,7 +490,7 @@ def cmd_paper(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Bi-LSTM + PPO Crypto Trading Bot",
+        description="Bi-LSTM + PPO Crypto Trading Bot (v2 — Attention Architecture)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
@@ -501,14 +508,24 @@ def main():
     process_parser.add_argument('--timeframe', default=TIMEFRAME_TRADE, help='Target timeframe')
     process_parser.add_argument('--fear-greed', action='store_true', help='Include Fear & Greed')
     
-    # Pretrain command
-    pretrain_parser = subparsers.add_parser('pretrain', help='Pre-train Bi-LSTM')
+    # Pretrain command (enhanced for v2)
+    pretrain_parser = subparsers.add_parser('pretrain', help='Pre-train Bi-LSTM (v2)')
     pretrain_parser.add_argument('--symbol', default=SYMBOL, help='Trading pair')
     pretrain_parser.add_argument('--timeframe', default=TIMEFRAME_TRADE, help='Timeframe')
-    pretrain_parser.add_argument('--epochs', type=int, default=50, help='Training epochs')
-    pretrain_parser.add_argument('--batch-size', type=int, default=64, help='Batch size')
-    pretrain_parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    pretrain_parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
+    pretrain_parser.add_argument('--epochs', type=int, default=100, help='Training epochs (default: 100)')
+    pretrain_parser.add_argument('--batch-size', type=int, default=32, help='Batch size (default: 32)')
+    pretrain_parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate (default: 1e-4)')
+    pretrain_parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
+    pretrain_parser.add_argument('--attention', action='store_true', default=True,
+                                help='Use self-attention (default: True)')
+    pretrain_parser.add_argument('--no-attention', dest='attention', action='store_false',
+                                help='Disable self-attention')
+    pretrain_parser.add_argument('--focal-loss', action='store_true', default=True,
+                                help='Use Focal Loss (default: True)')
+    pretrain_parser.add_argument('--no-focal-loss', dest='focal_loss', action='store_false',
+                                help='Use BCE Loss instead of Focal Loss')
+    pretrain_parser.add_argument('--focal-gamma', type=float, default=FOCAL_LOSS_GAMMA,
+                                help=f'Focal Loss gamma (default: {FOCAL_LOSS_GAMMA})')
     
     # Train command
     train_parser = subparsers.add_parser('train', help='Train PPO agent')

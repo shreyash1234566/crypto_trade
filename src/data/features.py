@@ -1,5 +1,9 @@
 """
 Feature Engineering - Calculate technical indicators for trading.
+
+Upgraded feature set targeting 70-75% directional accuracy:
+- Critical: RSI, MACD, ATR, Bollinger %B, Log returns, Volume ratio
+- High: EMA crossover, OBV, VWAP deviation, Stochastic, Candle patterns
 """
 import pandas as pd
 import numpy as np
@@ -15,6 +19,7 @@ from config.settings import (
     OUTLIER_Z_THRESHOLD,
     NORMALIZATION_CLIP,
     FEATURE_CORR_THRESHOLD,
+    NORM_WINDOW,
 )
 
 
@@ -141,6 +146,10 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add technical indicators and derived features to OHLCV data.
     
+    Enhanced feature set for 70-75% directional accuracy target:
+    - Critical tier: RSI, MACD, ATR, Bollinger %B, Log returns, Volume ratio
+    - High tier: EMA crossover, OBV, VWAP dev, Stochastic, Candle patterns
+    
     Args:
         df: DataFrame with OHLCV columns
         
@@ -157,7 +166,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['volume_ema'] = _ema_smooth(df['volume'], span=PRICE_SMOOTHING_SPAN)
     
     # ==========================================================================
-    # PRICE FEATURES
+    # CRITICAL TIER — Price Features
     # ==========================================================================
     
     # Log returns on smoothed close to reduce 1-bar noise
@@ -168,7 +177,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['volatility'] = df['log_return'].rolling(window=20).std()
     
     # ==========================================================================
-    # RSI (Relative Strength Index)
+    # CRITICAL TIER — RSI (Relative Strength Index)
     # ==========================================================================
     df['rsi'] = ta.momentum.RSIIndicator(
         close=df['close_ema'],
@@ -176,7 +185,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     ).rsi()
     
     # ==========================================================================
-    # MACD (Moving Average Convergence Divergence)
+    # CRITICAL TIER — MACD (Moving Average Convergence Divergence)
     # ==========================================================================
     macd = ta.trend.MACD(
         close=df['close_ema'],
@@ -188,7 +197,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['macd_hist'] = macd.macd_diff()
     
     # ==========================================================================
-    # BOLLINGER BANDS
+    # CRITICAL TIER — Bollinger Bands %B
     # ==========================================================================
     bb = ta.volatility.BollingerBands(
         close=df['close_ema'],
@@ -198,7 +207,79 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['bb_pct'] = bb.bollinger_pband()  # %B indicator
     
     # ==========================================================================
-    # ADDITIONAL FEATURES
+    # CRITICAL TIER — ATR (Average True Range) [NEW]
+    # ==========================================================================
+    df['atr'] = ta.volatility.AverageTrueRange(
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        window=14
+    ).average_true_range()
+    # Normalize ATR relative to price for cross-period comparability
+    df['atr_pct'] = df['atr'] / df['close']
+    
+    # ==========================================================================
+    # CRITICAL TIER — Volume Ratio [NEW]
+    # ==========================================================================
+    vol_ma = df['volume'].rolling(window=20, min_periods=5).mean()
+    df['volume_ratio'] = df['volume'] / (vol_ma + 1e-8)
+    df['volume_ratio'] = _clip_rolling_zscore(df['volume_ratio'])
+    
+    # ==========================================================================
+    # HIGH TIER — OBV (On-Balance Volume) [NEW]
+    # ==========================================================================
+    df['obv'] = ta.volume.OnBalanceVolumeIndicator(
+        close=df['close'],
+        volume=df['volume']
+    ).on_balance_volume()
+    # Use rate of change of OBV (raw OBV is non-stationary)
+    df['obv_roc'] = df['obv'].pct_change(periods=5)
+    df['obv_roc'] = _clip_rolling_zscore(df['obv_roc'])
+    
+    # ==========================================================================
+    # HIGH TIER — EMA 9/21 Crossover Signal [NEW]
+    # ==========================================================================
+    ema_9 = ta.trend.EMAIndicator(close=df['close'], window=9).ema_indicator()
+    ema_21 = ta.trend.EMAIndicator(close=df['close'], window=21).ema_indicator()
+    # Normalized distance between fast and slow EMA
+    df['ema_cross'] = (ema_9 - ema_21) / (df['close'] + 1e-8)
+    df['ema_cross'] = _clip_rolling_zscore(df['ema_cross'])
+    
+    # ==========================================================================
+    # HIGH TIER — Stochastic Oscillator %K/%D [NEW]
+    # ==========================================================================
+    stoch = ta.momentum.StochasticOscillator(
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        window=14,
+        smooth_window=3
+    )
+    df['stoch_k'] = stoch.stoch()
+    df['stoch_d'] = stoch.stoch_signal()
+    
+    # ==========================================================================
+    # HIGH TIER — VWAP Deviation [NEW]
+    # ==========================================================================
+    # Session-based VWAP approximation using rolling window
+    typical_price = (df['high'] + df['low'] + df['close']) / 3.0
+    cum_tp_vol = (typical_price * df['volume']).rolling(window=96, min_periods=10).sum()
+    cum_vol = df['volume'].rolling(window=96, min_periods=10).sum()
+    df['vwap'] = cum_tp_vol / (cum_vol + 1e-8)
+    df['vwap_dev'] = (df['close'] - df['vwap']) / (df['vwap'] + 1e-8)
+    df['vwap_dev'] = _clip_rolling_zscore(df['vwap_dev'])
+    
+    # ==========================================================================
+    # HIGH TIER — Candle Structure Features [NEW]
+    # ==========================================================================
+    candle_range = df['high'] - df['low']
+    # Body ratio: signed, positive = bullish, negative = bearish
+    df['candle_body'] = (df['close'] - df['open']) / (candle_range + 1e-8)
+    # Upper wick ratio
+    df['upper_wick'] = (df['high'] - df[['open', 'close']].max(axis=1)) / (candle_range + 1e-8)
+    
+    # ==========================================================================
+    # EXISTING FEATURES (kept)
     # ==========================================================================
     
     # Price position relative to range
@@ -234,7 +315,8 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['price_ema_ratio'] = _clip_rolling_zscore(df['price_ema_ratio'])
 
     # Drop intermediate helper columns to keep the final dataset compact
-    df.drop(columns=['close_ema', 'volume_ema', 'macd'], inplace=True, errors='ignore')
+    df.drop(columns=['close_ema', 'volume_ema', 'macd', 'vwap', 'obv',
+                     'atr'], inplace=True, errors='ignore')
     
     # Drop NaN rows from rolling calculations
     df.dropna(inplace=True)
@@ -246,6 +328,9 @@ def normalize_features(df: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     """
     Normalize features using rolling z-score (prevents look-ahead bias).
     
+    Uses a 252-candle rolling window (~63 hours of 15-min data) as recommended
+    by research for stable normalization statistics.
+    
     Args:
         df: DataFrame with features
         feature_cols: List of columns to normalize
@@ -254,7 +339,7 @@ def normalize_features(df: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
         DataFrame with normalized features
     """
     df = df.copy()
-    window = 60  # Rolling window for normalization
+    window = NORM_WINDOW  # 252-candle rolling window (research recommendation)
     
     for col in feature_cols:
         if col in df.columns:
@@ -300,17 +385,30 @@ def prepare_features(
     df = add_features(df)
     print(f"After features: {len(df):,} candles, {len(df.columns)} columns")
     
-    # Select a compact, low-redundancy feature set before normalization
+    # ======================================================================
+    # Enhanced candidate feature set for 70-75% accuracy target
+    # ======================================================================
     candidate_raw_cols = [
+        # Critical tier (always include)
         'log_return', 'volatility', 'rsi', 'macd_hist', 'bb_pct',
+        'atr_pct', 'volume_ratio',
+        # High tier (include for 70-75%)
+        'obv_roc', 'ema_cross', 'stoch_k', 'stoch_d',
+        'vwap_dev', 'candle_body', 'upper_wick',
+        # Existing features
         'price_range', 'volume_change', 'price_ema_ratio', 'frac_diff',
+        # Optional sentiment
         'fear_greed_norm'
     ]
     selected_raw_cols = select_feature_columns(df, candidate_raw_cols)
+    print(f"Selected {len(selected_raw_cols)} features after correlation pruning")
 
     # Normalize selected features
     normalize_cols = [col for col in selected_raw_cols if col != 'fear_greed_norm']
     df = normalize_features(df, normalize_cols)
+
+    # Drop rows with NaN from extended normalization window
+    df.dropna(inplace=True)
 
     # Persist selected features so training / evaluation use the same denoised set
     feature_columns = ['close', 'volume'] + [
@@ -318,8 +416,24 @@ def prepare_features(
         for col in selected_raw_cols
     ]
     _save_feature_columns(symbol, timeframe, feature_columns)
-    print(f"Selected features: {feature_columns}")
+    print(f"Final feature set ({len(feature_columns)} features): {feature_columns}")
     
+    # ======================================================================
+    # LightGBM feature importance ranking (informational)
+    # ======================================================================
+    try:
+        from src.data.feature_selector import rank_features_lgbm
+        norm_cols = [c for c in feature_columns if c not in ('close', 'volume')]
+        available_norm_cols = [c for c in norm_cols if c in df.columns]
+        if len(available_norm_cols) >= 3 and 'target' in df.columns:
+            importance_df = rank_features_lgbm(df, available_norm_cols, 'target')
+            print("\n📊 LightGBM Feature Importance Ranking:")
+            print(importance_df.to_string(index=False))
+    except ImportError:
+        print("⚠️  lightgbm not installed — skipping feature importance ranking")
+    except Exception as e:
+        print(f"⚠️  Feature importance ranking failed: {e}")
+
     # Save
     if save:
         output_file = PROCESSED_DATA_DIR / f"{symbol.replace('/', '_')}_{timeframe}_features.parquet"
@@ -349,11 +463,16 @@ def get_feature_columns() -> list:
     if saved:
         return saved
 
+    # Default fallback — expanded feature set
     return [
         'close', 'volume',
         'log_return_norm', 'volatility_norm', 'rsi_norm',
-        'macd_hist_norm', 'bb_pct_norm', 'price_range_norm',
-        'volume_change_norm', 'price_ema_ratio_norm', 'frac_diff_norm',
+        'macd_hist_norm', 'bb_pct_norm', 'atr_pct_norm',
+        'volume_ratio_norm', 'obv_roc_norm', 'ema_cross_norm',
+        'stoch_k_norm', 'stoch_d_norm', 'vwap_dev_norm',
+        'candle_body_norm', 'upper_wick_norm',
+        'price_range_norm', 'volume_change_norm',
+        'price_ema_ratio_norm', 'frac_diff_norm',
         'fear_greed_norm'
     ]
 

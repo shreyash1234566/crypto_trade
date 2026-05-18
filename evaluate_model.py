@@ -1,5 +1,12 @@
 """
-Evaluate trained model performance
+Evaluate trained model performance with directional accuracy metrics.
+
+Metrics reported:
+- Directional accuracy (next-candle up/down prediction accuracy)
+- Action distribution (buy/hold/sell breakdown)
+- Reward analysis
+- Trade results (win rate, PnL)
+- Market context (buy & hold comparison, alpha)
 """
 import pandas as pd
 import numpy as np
@@ -63,6 +70,75 @@ print(f'Buy (0):  {np.sum(actions_arr == 0):5d} ({100*np.sum(actions_arr == 0)/l
 print(f'Hold (1): {np.sum(actions_arr == 1):5d} ({100*np.sum(actions_arr == 1)/len(actions_arr):5.1f}%)')
 print(f'Sell (2): {np.sum(actions_arr == 2):5d} ({100*np.sum(actions_arr == 2)/len(actions_arr):5.1f}%)')
 
+# ================================================================
+# DIRECTIONAL ACCURACY — The core metric for 70-75% target
+# ================================================================
+print(f'\n{"="*60}')
+print('DIRECTIONAL ACCURACY (Next-Candle Prediction)')
+print(f'{"="*60}')
+
+# Map actions to predicted direction: Buy=Up(1), Sell=Down(0), Hold=Skip
+correct_dir = 0
+total_dir = 0
+correct_by_class = {'up': 0, 'down': 0}
+total_by_class = {'up': 0, 'down': 0}
+
+for i in range(len(actions_arr)):
+    action = actions_arr[i]
+    
+    # Skip Hold actions — they don't make a directional prediction
+    if action == 1:
+        continue
+    
+    # Predicted direction: Buy(0)=Up, Sell(2)=Down
+    predicted_up = (action == 0)
+    
+    # Actual direction: next candle close vs current close
+    current_step = step_info[i]['step']
+    if current_step + 1 >= len(test_df):
+        continue
+        
+    actual_up = test_df.iloc[current_step + 1]['close'] > test_df.iloc[current_step]['close']
+    
+    total_dir += 1
+    if actual_up:
+        total_by_class['up'] += 1
+    else:
+        total_by_class['down'] += 1
+    
+    if predicted_up == actual_up:
+        correct_dir += 1
+        if actual_up:
+            correct_by_class['up'] += 1
+        else:
+            correct_by_class['down'] += 1
+
+if total_dir > 0:
+    dir_accuracy = correct_dir / total_dir
+    print(f'Directional predictions made: {total_dir}')
+    print(f'Correct predictions:          {correct_dir}')
+    print(f'Directional Accuracy:         {dir_accuracy:.2%}')
+    
+    # Per-class accuracy
+    if total_by_class['up'] > 0:
+        up_acc = correct_by_class['up'] / total_by_class['up']
+        print(f'  Up prediction accuracy:     {up_acc:.2%} ({correct_by_class["up"]}/{total_by_class["up"]})')
+    if total_by_class['down'] > 0:
+        down_acc = correct_by_class['down'] / total_by_class['down']
+        print(f'  Down prediction accuracy:   {down_acc:.2%} ({correct_by_class["down"]}/{total_by_class["down"]})')
+    
+    # Target assessment
+    if dir_accuracy >= 0.75:
+        print(f'\n🏆 EXCEEDS TARGET: {dir_accuracy:.1%} > 75%')
+    elif dir_accuracy >= 0.70:
+        print(f'\n🎯 TARGET ACHIEVED: {dir_accuracy:.1%} ∈ [70%, 75%]')
+    elif dir_accuracy >= 0.60:
+        print(f'\n📈 PROGRESS: {dir_accuracy:.1%} — approaching 70% target')
+    else:
+        print(f'\n⚠️  BELOW TARGET: {dir_accuracy:.1%} — needs improvement')
+else:
+    print('No directional predictions made (all Hold actions)')
+
 # Analyze rewards
 print(f'\n{"="*60}')
 print('REWARD ANALYSIS')
@@ -91,23 +167,34 @@ if hasattr(base_env, 'trades') and base_env.trades:
     print(f'{"="*60}')
     wins = 0
     losses = 0
+    total_pnl = 0
     for i, trade in enumerate(base_env.trades):
         pnl = trade.get('pnl', 0)
         pnl_pct = trade.get('pnl_pct', 0) * 100
         direction = 'LONG' if trade.get('direction', 1) == 1 else 'SHORT'
         status = '✓' if pnl > 0 else '✗'
         print(f'Trade {i+1:2d}: {direction:5s} | PnL: ${pnl:8.2f} ({pnl_pct:+6.2f}%) {status}')
+        total_pnl += pnl
         if pnl > 0:
             wins += 1
         else:
             losses += 1
     
     print(f'\n{"="*60}')
-    print('SUMMARY')
+    print('TRADE SUMMARY')
     print(f'{"="*60}')
-    print(f'Wins:     {wins}')
-    print(f'Losses:   {losses}')
-    print(f'Win Rate: {100*wins/(wins+losses) if (wins+losses) > 0 else 0:.1f}%')
+    print(f'Wins:       {wins}')
+    print(f'Losses:     {losses}')
+    print(f'Win Rate:   {100*wins/(wins+losses) if (wins+losses) > 0 else 0:.1f}%')
+    print(f'Total PnL:  ${total_pnl:,.2f}')
+    
+    if wins + losses > 0:
+        avg_win = sum(t['pnl'] for t in base_env.trades if t['pnl'] > 0) / max(wins, 1)
+        avg_loss = sum(t['pnl'] for t in base_env.trades if t['pnl'] <= 0) / max(losses, 1)
+        print(f'Avg Win:    ${avg_win:,.2f}')
+        print(f'Avg Loss:   ${avg_loss:,.2f}')
+        if abs(avg_loss) > 0:
+            print(f'Risk/Reward:{abs(avg_win/avg_loss):.2f}x')
 
 # Price movement during test period
 print(f'\n{"="*60}')

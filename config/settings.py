@@ -39,11 +39,14 @@ LOOKBACK_DAYS = 180        # 6 months of historical data
 # =============================================================================
 # MODEL PARAMETERS
 # =============================================================================
-# Bi-LSTM
+# Bi-LSTM (Enhanced architecture v2)
 SEQUENCE_LENGTH = 60       # 60 candles lookback (15 hours for 15-min)
-LSTM_HIDDEN_SIZE = 128     # Hidden units per LSTM layer
+LSTM_HIDDEN_SIZE = 128     # Hidden units — Bi-LSTM layer 1
+LSTM_HIDDEN_SIZE_L2 = 64   # Hidden units — Bi-LSTM layer 2 (decreasing width)
 LSTM_NUM_LAYERS = 2        # Number of Bi-LSTM layers
 STATE_DIM = 64             # Output state vector dimension
+ATTENTION_HEADS = 4        # Multi-head attention heads (+2-4% accuracy)
+FOCAL_LOSS_GAMMA = 2.0     # Focal Loss gamma (handles class imbalance)
 
 # =============================================================================
 # PPO HYPERPARAMETERS (Optimized by Optuna)
@@ -113,15 +116,25 @@ FEATURE_CORR_THRESHOLD = 0.92   # Drop highly correlated features
 RAW_OUTLIER_Z_THRESHOLD = 8.0    # Stronger threshold for raw candle spike filtering
 RESAMPLE_SMOOTHING_SPAN = 3      # Lightweight smoothing after resampling
 WICK_RATIO_THRESHOLD = 0.12      # Reject candles with excessive wick-to-body noise
+NORM_WINDOW = 252                # Rolling z-score normalization window
+                                 # 252 candles = ~63 hours of 15-min data
+                                 # Prevents look-ahead bias (research recommendation)
 
 FEATURE_COLUMNS = [
     'close', 'volume',
-    'log_return_norm', 'volatility_norm',
-    'rsi_norm', 'macd_hist_norm',
-    'bb_pct_norm', 'price_range_norm',
-    'volume_change_norm', 'price_ema_ratio_norm',
-    'frac_diff_norm',
-    'fear_greed_norm'  # Optional, will be NaN if unavailable
+    # Critical tier
+    'log_return_norm', 'volatility_norm', 'rsi_norm',
+    'macd_hist_norm', 'bb_pct_norm', 'atr_pct_norm',
+    'volume_ratio_norm',
+    # High tier
+    'obv_roc_norm', 'ema_cross_norm',
+    'stoch_k_norm', 'stoch_d_norm',
+    'vwap_dev_norm', 'candle_body_norm', 'upper_wick_norm',
+    # Existing features
+    'price_range_norm', 'volume_change_norm',
+    'price_ema_ratio_norm', 'frac_diff_norm',
+    # Optional sentiment
+    'fear_greed_norm'
 ]
 
 # =============================================================================

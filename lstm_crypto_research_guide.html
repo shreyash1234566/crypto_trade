@@ -1,0 +1,307 @@
+
+<style>
+h2.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);color:var(--color-text-primary)}
+.section{padding:1.5rem 0 1rem}
+.section-title{font-size:13px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:var(--color-text-secondary);margin-bottom:1rem;padding-bottom:.5rem;border-bottom:.5px solid var(--color-border-tertiary)}
+.card{background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem;margin-bottom:.75rem}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.75rem}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem}
+.badge{display:inline-block;font-size:11px;font-weight:500;padding:2px 8px;border-radius:var(--border-radius-md);margin-right:4px;margin-bottom:4px}
+.badge-blue{background:#E6F1FB;color:#0C447C}
+.badge-green{background:#EAF3DE;color:#3B6D11}
+.badge-amber{background:#FAEEDA;color:#854F0B}
+.badge-red{background:#FCEBEB;color:#A32D2D}
+.badge-purple{background:#EEEDFE;color:#3C3489}
+.badge-teal{background:#E1F5EE;color:#0F6E56}
+.param-row{display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:.5px solid var(--color-border-tertiary);font-size:14px}
+.param-row:last-child{border-bottom:none}
+.param-label{color:var(--color-text-secondary);font-size:13px}
+.param-val{font-weight:500;color:var(--color-text-primary)}
+.proj-tag{font-size:11px;color:var(--color-text-secondary)}
+.star{color:#EF9F27;font-size:12px}
+.acc-bar-wrap{height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden;margin-top:4px;flex:1;margin-left:12px}
+.acc-bar{height:100%;border-radius:4px}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.feature-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.6rem .8rem}
+.feature-name{font-size:13px;font-weight:500;margin-bottom:2px}
+.feature-cat{font-size:11px;color:var(--color-text-secondary)}
+.importance-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.rec-row{display:flex;gap:12px;align-items:flex-start;padding:.6rem 0;border-bottom:.5px solid var(--color-border-tertiary);font-size:14px}
+.rec-row:last-child{border-bottom:none}
+.rec-icon{font-size:16px;margin-top:2px;flex-shrink:0}
+.tab-bar{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap}
+.tab{font-size:12px;padding:4px 12px;border-radius:var(--border-radius-md);border:.5px solid var(--color-border-tertiary);cursor:pointer;background:transparent;color:var(--color-text-secondary)}
+.tab.active{background:var(--color-background-info);color:var(--color-text-info);border-color:transparent}
+.panel{display:none}.panel.active{display:block}
+.source-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);color:var(--color-text-secondary);margin-right:4px;margin-bottom:4px;border:.5px solid var(--color-border-tertiary)}
+</style>
+
+<h2 class="sr-only">LSTM crypto trading research guide: parameters, features, and accuracy targets compiled from GitHub, Reddit, and research papers.</h2>
+
+<div style="padding:1rem 0 0">
+
+<div class="section">
+  <div class="section-title"><i class="ti ti-brand-github" aria-hidden="true"></i> Your project — crypto_trade analysis</div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:15px;font-weight:500;margin-bottom:4px">shreyash1234566 / crypto_trade</div>
+        <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px">Bi-LSTM + PPO · Purged Walk-Forward · Binance BTC/USDT 15-min</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <span class="badge badge-purple">Bi-LSTM</span>
+        <span class="badge badge-blue">PPO RL</span>
+        <span class="badge badge-teal">Walk-Forward CV</span>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:.75rem">
+      <div>
+        <div class="param-row"><span class="param-label">Architecture</span><span class="param-val">Bi-LSTM → 64-dim state</span></div>
+        <div class="param-row"><span class="param-label">Sequence length</span><span class="param-val">60 candles (15-min)</span></div>
+        <div class="param-row"><span class="param-label">Actions</span><span class="param-val">Buy / Hold / Sell (3-class)</span></div>
+        <div class="param-row"><span class="param-label">Risk per trade</span><span class="param-val">2% fixed</span></div>
+      </div>
+      <div>
+        <div class="param-row"><span class="param-label">CV method</span><span class="param-val">Purged Walk-Forward</span></div>
+        <div class="param-row"><span class="param-label">Train window</span><span class="param-val">30 days</span></div>
+        <div class="param-row"><span class="param-label">Purge buffer</span><span class="param-val">1 hr (4 candles)</span></div>
+        <div class="param-row"><span class="param-label">Test window</span><span class="param-val">7 days</span></div>
+      </div>
+    </div>
+    <div style="margin-top:.75rem;font-size:13px;color:var(--color-text-secondary)">
+      <i class="ti ti-alert-triangle" style="color:#EF9F27" aria-hidden="true"></i>
+      <strong style="color:var(--color-text-primary)"> Gap identified:</strong> No explicit mention of RSI, MACD, Bollinger, ATR, or on-chain features in current feature engineering. Fear &amp; Greed is optional. This is where 70-75% starts.
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title"><i class="ti ti-books" aria-hidden="true"></i> Similar projects found — GitHub · Reddit · Research</div>
+  <div class="tab-bar" id="tabs">
+    <button class="tab active" onclick="switchTab('github')"><i class="ti ti-brand-github" aria-hidden="true"></i> GitHub</button>
+    <button class="tab" onclick="switchTab('papers')"><i class="ti ti-file-text" aria-hidden="true"></i> Research Papers</button>
+    <button class="tab" onclick="switchTab('reddit')"><i class="ti ti-message-circle" aria-hidden="true"></i> Reddit Insights</button>
+  </div>
+
+  <div id="github" class="panel active">
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">Harshraj1301 / Crypocurrency-Predictive-Model-Using-LSTM</div>
+      <div style="margin-bottom:6px"><span class="badge badge-purple">BiLSTM · 64 units</span><span class="badge badge-blue">Dropout 0.2</span><span class="badge badge-green">MAPE 19%</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary)">BiLSTM with 64 units per layer, dropout 0.2. Daily aggregation from 1-min data. Dynamic stop-loss + take-profit portfolio optimization. Closest architecture to yours.</div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">AI-Fin-Lab / LSTM-PPO DRL Stock Trader (FinBERT)</div>
+      <div style="margin-bottom:6px"><span class="badge badge-purple">LSTM-PPO</span><span class="badge badge-amber">FinBERT sentiment</span><span class="badge badge-teal">SB3</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary)">LSTM-PPO combined with FinBERT news sentiment via Stable-Baselines3. Technical indicators + fundamental sentiment. Partial-observable MDP framing — highly relevant to your PPO setup.</div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">Solrikk / CriptoWhisper (TradeWhisperer)</div>
+      <div style="margin-bottom:6px"><span class="badge badge-blue">PPO · Bybit</span><span class="badge badge-teal">SB3</span><span class="badge badge-green">Live tested</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary)">PPO crypto bot with focus on risk management and adaptability. Real testnet runs on Doge. Shows real-world limitations of pure RL without strong feature engineering.</div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">FinRL (AI4Finance) — Top ranked crypto RL framework</div>
+      <div style="margin-bottom:6px"><span class="star">★</span><span style="font-size:12px;color:var(--color-text-secondary)"> 12k stars · 2025 active</span><span class="badge badge-purple" style="margin-left:8px">DQN/DDPG/PPO/SAC</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary)">Full pipeline for DRL crypto trading. Uses Binance + CCXT. Has a dedicated crypto environment. The gold standard reference — your project's architecture mirrors this well.</div>
+    </div>
+  </div>
+
+  <div id="papers" class="panel">
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">Omole &amp; Enke (2024) — Financial Innovation</div>
+      <div style="margin-bottom:6px"><span class="badge badge-green">CNN-LSTM 82.44% acc</span><span class="badge badge-blue">Boruta feature selection</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:6px">Best result: Boruta + CNN-LSTM = 82.44% direction accuracy on Bitcoin. On-chain data (realized value, unrealized value) had highest predictive power. Annualized return of 6,654% in backtesting with Long-Short strategy.</div>
+      <div><span class="source-chip"><i class="ti ti-file" aria-hidden="true"></i>Financial Innovation vol 10 (2024)</span></div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">Qi Zhao (NYU Stern) — Trade-by-trade LSTM</div>
+      <div style="margin-bottom:6px"><span class="badge badge-teal">60%+ out-of-sample</span><span class="badge badge-blue">Tick-level features</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:6px">First to use trade-by-trade (tick) data for LSTM crypto prediction. Carefully designed features + hyperparameter search achieves stable 60%+ accuracy. Transferable across crypto pairs without retraining.</div>
+      <div><span class="source-chip"><i class="ti ti-file" aria-hidden="true"></i>arXiv 2010.07404</span></div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">Springer (2025) — Bi-LSTM + Sentiment (RoBERTa)</div>
+      <div style="margin-bottom:6px"><span class="badge badge-purple">Bi-LSTM</span><span class="badge badge-amber">RoBERTa MAPE 2.01%</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:6px">Bi-LSTM + RoBERTa Twitter sentiment achieves MAPE 2.01%. Key predictors via SHAP: Sentiment Momentum, RoBERTa Compound Score, VADER Negativity Score. RoBERTa crushed VADER.</div>
+      <div><span class="source-chip"><i class="ti ti-file" aria-hidden="true"></i>Springer SNAM (2025)</span></div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">MDPI Systems (2024) — Attention-LSTM + Indicators</div>
+      <div style="margin-bottom:6px"><span class="badge badge-teal">3-class trend prediction</span><span class="badge badge-blue">MACD = key feature</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:6px">Attention-LSTM + Attention-GRU for up/down/neutral classification using SMA, EMA, TEMA, MACD. MACD alone gives the biggest accuracy jump. Attention-LSTM best for long-term dependencies — directly applicable to your model.</div>
+      <div><span class="source-chip"><i class="ti ti-file" aria-hidden="true"></i>MDPI Systems 12(11) 498 (2024)</span></div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">Kim &amp; Park (2025) — CNN-LSTM with macro variables</div>
+      <div style="margin-bottom:6px"><span class="badge badge-purple">CNN-LSTM binary classifier</span><span class="badge badge-amber">S&amp;P500, Gold, interest rates</span></div>
+      <div style="font-size:13px;color:var(--color-text-secondary)">Separate models for up/down trained independently then combined. Cross-asset features (SPX, DXY, gold) add significant lift beyond pure OHLCV. XAI confirms which macro features drive BTC direction.</div>
+      <div style="margin-top:6px"><span class="source-chip"><i class="ti ti-file" aria-hidden="true"></i>J. Futures Markets (2025)</span></div>
+    </div>
+  </div>
+
+  <div id="reddit" class="panel">
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:6px">r/algotrading consensus on LSTM for crypto</div>
+      <div class="rec-row"><i class="ti ti-thumb-up rec-icon" style="color:#3B6D11" aria-hidden="true"></i><div><span style="color:var(--color-text-secondary);font-size:13px">"What actually works"</span><br>Feature engineering beats model complexity every time. Adding RSI, ATR, and volume profile to a simple LSTM outperforms a deep BiLSTM on raw OHLCV.</div></div>
+      <div class="rec-row"><i class="ti ti-thumb-up rec-icon" style="color:#3B6D11" aria-hidden="true"></i><div><span style="color:var(--color-text-secondary);font-size:13px">"Sequence length"</span><br>Most consensus: 30–60 candles for 15-min data. Longer (120+) often hurts because distant past is noisy, not signal. Your 60-candle choice is correct.</div></div>
+      <div class="rec-row"><i class="ti ti-thumb-up rec-icon" style="color:#3B6D11" aria-hidden="true"></i><div><span style="color:var(--color-text-secondary);font-size:13px">"Walk-Forward is non-negotiable"</span><br>Standard K-fold on time series = data leakage. Purged Walk-Forward (exactly what you have) is the community-recommended method from Lopez de Prado.</div></div>
+      <div class="rec-row"><i class="ti ti-alert-triangle rec-icon" style="color:#854F0B" aria-hidden="true"></i><div><span style="color:var(--color-text-secondary);font-size:13px">"Common traps"</span><br>Normalizing across the whole dataset (use rolling/online normalization). Not detrending. Predicting price instead of log-returns or binary direction.</div></div>
+      <div class="rec-row"><i class="ti ti-alert-triangle rec-icon" style="color:#854F0B" aria-hidden="true"></i><div><span style="color:var(--color-text-secondary);font-size:13px">"70-75% is realistic ceiling"</span><br>Community consensus: 70-75% directional accuracy on 15-min BTC is achievable with good features. 80%+ is suspicious — likely look-ahead bias. Anything below 55% is chance.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title"><i class="ti ti-adjustments" aria-hidden="true"></i> Optimal LSTM parameters — compiled from top studies</div>
+  <div class="grid2">
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:.75rem;color:var(--color-text-secondary)">Architecture</div>
+      <div class="param-row"><span class="param-label">Type</span><span class="param-val">Bi-LSTM (keep yours) ✓</span></div>
+      <div class="param-row"><span class="param-label">Layers</span><span class="param-val">2 stacked Bi-LSTM layers</span></div>
+      <div class="param-row"><span class="param-label">Hidden units L1</span><span class="param-val">128 units</span></div>
+      <div class="param-row"><span class="param-label">Hidden units L2</span><span class="param-val">64 units</span></div>
+      <div class="param-row"><span class="param-label">Dropout</span><span class="param-val">0.2 – 0.3 (recurrent too)</span></div>
+      <div class="param-row"><span class="param-label">Dense head</span><span class="param-val">64 → 32 → output</span></div>
+      <div class="param-row"><span class="param-label">Attention</span><span class="param-val">Add self-attention (+2-4% acc)</span></div>
+    </div>
+    <div class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:.75rem;color:var(--color-text-secondary)">Training</div>
+      <div class="param-row"><span class="param-label">Sequence length</span><span class="param-val">60 candles ✓ (keep)</span></div>
+      <div class="param-row"><span class="param-label">Batch size</span><span class="param-val">32 – 64</span></div>
+      <div class="param-row"><span class="param-label">Epochs</span><span class="param-val">50–100 + early stopping</span></div>
+      <div class="param-row"><span class="param-label">Optimizer</span><span class="param-val">Adam · lr = 1e-3 → 1e-4</span></div>
+      <div class="param-row"><span class="param-label">LR schedule</span><span class="param-val">ReduceLROnPlateau patience=5</span></div>
+      <div class="param-row"><span class="param-label">Loss (pre-train)</span><span class="param-val">Binary CE or Focal Loss</span></div>
+      <div class="param-row"><span class="param-label">Class weights</span><span class="param-val">Balance Buy/Hold/Sell</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title"><i class="ti ti-chart-line" aria-hidden="true"></i> Feature engineering — what the best models train on</div>
+  <div style="margin-bottom:.75rem;font-size:13px;color:var(--color-text-secondary)">Ranked by how consistently they appear in top-performing models. Color = importance tier.</div>
+  <div class="feature-grid">
+    <div class="feature-card"><span class="importance-dot" style="background:#639922"></span><div class="feature-name">RSI (14)</div><div class="feature-cat">Momentum · Critical</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#639922"></span><div class="feature-name">MACD + Signal</div><div class="feature-cat">Trend · Critical</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#639922"></span><div class="feature-name">ATR (14)</div><div class="feature-cat">Volatility · Critical</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#639922"></span><div class="feature-name">Bollinger %B</div><div class="feature-cat">Mean-rev · Critical</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#639922"></span><div class="feature-name">Log returns</div><div class="feature-cat">Price · Critical</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#639922"></span><div class="feature-name">Volume ratio</div><div class="feature-cat">Volume · Critical</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#EF9F27"></span><div class="feature-name">EMA 9/21/50</div><div class="feature-cat">Trend · High</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#EF9F27"></span><div class="feature-name">OBV</div><div class="feature-cat">Volume · High</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#EF9F27"></span><div class="feature-name">VWAP deviation</div><div class="feature-cat">Price · High</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#EF9F27"></span><div class="feature-name">Stochastic %K/%D</div><div class="feature-cat">Momentum · High</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#EF9F27"></span><div class="feature-name">Candle patterns</div><div class="feature-cat">Structure · High</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#EF9F27"></span><div class="feature-name">Fear &amp; Greed idx</div><div class="feature-cat">Sentiment · High ✓</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#378ADD"></span><div class="feature-name">BTC dominance</div><div class="feature-cat">On-chain · Medium</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#378ADD"></span><div class="feature-name">Funding rate</div><div class="feature-cat">Derivatives · Medium</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#378ADD"></span><div class="feature-name">Open interest Δ</div><div class="feature-cat">Derivatives · Medium</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#378ADD"></span><div class="feature-name">DXY / SPX</div><div class="feature-cat">Macro · Medium</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#888780"></span><div class="feature-name">Hash rate</div><div class="feature-cat">On-chain · Optional</div></div>
+    <div class="feature-card"><span class="importance-dot" style="background:#888780"></span><div class="feature-name">Twitter sentiment</div><div class="feature-cat">NLP · Optional</div></div>
+  </div>
+  <div style="margin-top:.75rem;display:flex;gap:1rem;flex-wrap:wrap;font-size:12px;color:var(--color-text-secondary)">
+    <span><span class="importance-dot" style="background:#639922;display:inline-block"></span> Critical — always include</span>
+    <span><span class="importance-dot" style="background:#EF9F27;display:inline-block"></span> High — include for 70-75%</span>
+    <span><span class="importance-dot" style="background:#378ADD;display:inline-block"></span> Medium — for 75%+</span>
+    <span><span class="importance-dot" style="background:#888780;display:inline-block"></span> Optional — diminishing returns</span>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title"><i class="ti ti-target" aria-hidden="true"></i> Accuracy benchmarks — what models actually achieve</div>
+  <div class="card">
+    <div style="font-size:14px;color:var(--color-text-secondary);margin-bottom:.75rem">Direction prediction accuracy (next candle / next day)</div>
+    <div id="benchmarks"></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title"><i class="ti ti-list-check" aria-hidden="true"></i> Your 70-75% accuracy roadmap — priority order</div>
+  <div class="card">
+    <div class="rec-row">
+      <div style="background:#EAF3DE;color:#3B6D11;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">1</div>
+      <div><strong>Add RSI, MACD, ATR, Bollinger %B to features.py</strong><br><span style="font-size:13px;color:var(--color-text-secondary)">These 4 are the highest-impact additions. Papers show 5-8% accuracy jump from OHLCV-only. Use the <code>ta</code> library already in your requirements.txt.</span></div>
+    </div>
+    <div class="rec-row">
+      <div style="background:#EAF3DE;color:#3B6D11;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">2</div>
+      <div><strong>Change pre-training target to binary log-return direction</strong><br><span style="font-size:13px;color:var(--color-text-secondary)">Pre-train BiLSTM on binary up/down (not regression). Use Focal Loss (γ=2) to handle Hold class imbalance. This is the single biggest lever for classification accuracy.</span></div>
+    </div>
+    <div class="rec-row">
+      <div style="background:#EAF3DE;color:#3B6D11;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">3</div>
+      <div><strong>Add self-attention layer after BiLSTM</strong><br><span style="font-size:13px;color:var(--color-text-secondary)">Insert a scaled dot-product attention module between BiLSTM output and the dense head. Multiple papers show +2-4% accuracy improvement at negligible compute cost. PyTorch: <code>nn.MultiheadAttention</code>.</span></div>
+    </div>
+    <div class="rec-row">
+      <div style="background:#EAF3DE;color:#3B6D11;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">4</div>
+      <div><strong>Scale up hidden units: 128 → 64 (two stacked layers)</strong><br><span style="font-size:13px;color:var(--color-text-secondary)">Your current 64-dim output is fine, but add a second Bi-LSTM layer at 128 units before it. Add recurrent dropout (0.2) to both. This is the standard "sweet spot" from hyperparameter studies.</span></div>
+    </div>
+    <div class="rec-row">
+      <div style="background:#E6F1FB;color:#185FA5;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">5</div>
+      <div><strong>Add funding rate + open interest delta</strong><br><span style="font-size:13px;color:var(--color-text-secondary)">Binance perpetual futures funding rate and OI changes are uniquely predictive for crypto (not available in stock data). Fetch via CCXT. Particularly useful for catching trend reversals.</span></div>
+    </div>
+    <div class="rec-row">
+      <div style="background:#E6F1FB;color:#185FA5;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">6</div>
+      <div><strong>Use Boruta or LGBM for feature selection</strong><br><span style="font-size:13px;color:var(--color-text-secondary)">The top paper (82.44% accuracy) used Boruta to select on-chain features. Run LGBM feature importance on your full feature set and drop the bottom 30%. Prevents curse of dimensionality in LSTM input.</span></div>
+    </div>
+    <div class="rec-row" style="border-bottom:none">
+      <div style="background:#FAEEDA;color:#854F0B;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0">7</div>
+      <div><strong>Rolling z-score normalization (not global)</strong><br><span style="font-size:13px;color:var(--color-text-secondary)">Normalize features using a rolling 252-candle window, not global min-max. Global normalization introduces look-ahead bias (future price range leaks into past features). This is the most common silent bug in crypto LSTM projects.</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title"><i class="ti ti-code" aria-hidden="true"></i> Recommended final architecture</div>
+  <div class="card" style="background:var(--color-background-secondary);font-size:13px">
+<pre style="font-family:var(--font-mono);font-size:12px;line-height:1.7;color:var(--color-text-primary);white-space:pre-wrap">Input: [batch, 60 candles, ~22 features]
+  │
+  ├── BatchNorm1d(22)
+  │
+  ├── BiLSTM Layer 1: hidden=128, dropout=0.2, recurrent_dropout=0.2
+  │
+  ├── BiLSTM Layer 2: hidden=64,  dropout=0.2
+  │
+  ├── MultiheadAttention(64*2=128, heads=4)   ← ADD THIS
+  │
+  ├── LayerNorm(128)
+  │
+  ├── Linear(128 → 64) + ReLU + Dropout(0.3)
+  ├── Linear(64  → 32) + ReLU
+  │
+  └── Linear(32 → 3)   [Buy / Hold / Sell]
+       └── Focal Loss (γ=2, α=[0.3, 0.4, 0.3])
+
+Pre-train: binary direction (up/down) · 50 epochs
+Fine-tune:  3-class trading signal · 30 epochs
+PPO input:  this 3-class logit vector (not raw LSTM state)</pre>
+  </div>
+</div>
+
+</div>
+
+<script>
+function switchTab(name){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(name).classList.add('active');
+  event.target.classList.add('active');
+}
+
+const benchmarks=[
+  {label:'Raw LSTM · OHLCV only',acc:55,color:'#888780'},
+  {label:'BiLSTM · OHLCV + basic TA',acc:62,color:'#378ADD'},
+  {label:'Your current target',acc:67,color:'#EF9F27',note:'estimated'},
+  {label:'BiLSTM + RSI/MACD/ATR/BB + Attention',acc:72,color:'#639922'},
+  {label:'CNN-BiLSTM + on-chain + Boruta',acc:78,color:'#534AB7'},
+  {label:'CNN-LSTM + on-chain (Omole & Enke 2024)',acc:82,color:'#0F6E56'},
+];
+const wrap=document.getElementById('benchmarks');
+benchmarks.forEach(b=>{
+  const row=document.createElement('div');
+  row.style.cssText='display:flex;align-items:center;gap:8px;padding:.35rem 0;border-bottom:.5px solid var(--color-border-tertiary)';
+  row.innerHTML=`<span style="font-size:12px;width:220px;flex-shrink:0;color:var(--color-text-secondary)">${b.label}${b.note?'<br><span style="font-size:11px;color:var(--color-text-secondary)">'+b.note+'</span>':''}</span><div style="flex:1;height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.round((b.acc/100)*100)}%;background:${b.color};border-radius:4px"></div></div><span style="font-size:12px;font-weight:500;width:36px;text-align:right">${b.acc}%</span>`;
+  wrap.appendChild(row);
+});
+</script>

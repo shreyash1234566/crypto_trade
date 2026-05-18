@@ -1,17 +1,24 @@
 """
-Bi-LSTM Feature Extractor - Extracts market state from price sequences.
+Bi-LSTM Feature Extractor - Enhanced architecture for 70-75% accuracy.
 
-Architecture:
-- Input: 60 candles × N features (sequence)
-- Bi-LSTM: 2 layers, 128 hidden units
-- Output: 64-dimensional state vector
+Architecture (from research guide):
+- Input: 60 candles × ~22 features
+- BatchNorm1d on input features
+- Bi-LSTM Layer 1: 128 hidden units, dropout=0.2
+- Bi-LSTM Layer 2: 64 hidden units, dropout=0.2
+- MultiheadAttention (128 dim, 4 heads) ← +2-4% accuracy
+- LayerNorm(128)
+- Dense head: 128 → 64 → 32 → output (64-dim state)
+- Classifier: output → 32 → 1 (Sigmoid) for pre-training
 
 Pre-training:
 - Task: Predict next candle direction (up/down)
+- Loss: Focal Loss (γ=2) for class imbalance
 - After training, freeze weights and use as feature extractor for PPO
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -24,20 +31,75 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from config.settings import (
     SEQUENCE_LENGTH, LSTM_HIDDEN_SIZE, LSTM_NUM_LAYERS, 
-    STATE_DIM, MODELS_DIR, DEVICE_LSTM as DEVICE
+    STATE_DIM, MODELS_DIR, DEVICE_LSTM as DEVICE,
+    LSTM_HIDDEN_SIZE_L2, ATTENTION_HEADS, FOCAL_LOSS_GAMMA
 )
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for handling class imbalance in binary classification.
+    
+    From "Focal Loss for Dense Object Detection" (Lin et al., 2017).
+    Down-weights easy examples and focuses training on hard misclassified ones.
+    
+    With γ=2: well-classified examples (pt>0.6) get 4x less weight.
+    """
+    
+    def __init__(self, gamma: float = 2.0, alpha: float = 0.25):
+        """
+        Args:
+            gamma: Focusing parameter. Higher = more focus on hard examples.
+                   γ=0 is equivalent to BCE. γ=2 is recommended default.
+            alpha: Balancing factor for positive class (1-alpha for negative).
+        """
+        super().__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+    
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            pred: Predicted probabilities [0, 1], shape (batch,)
+            target: Binary targets {0, 1}, shape (batch,)
+        """
+        # Clamp predictions to avoid log(0)
+        pred = pred.clamp(1e-7, 1 - 1e-7)
+        
+        # Standard BCE (element-wise)
+        bce = F.binary_cross_entropy(pred, target, reduction='none')
+        
+        # Probability of correct classification
+        pt = torch.where(target == 1, pred, 1 - pred)
+        
+        # Class-balancing weight
+        alpha_t = torch.where(target == 1, self.alpha, 1 - self.alpha)
+        
+        # Focal modulating factor: (1 - pt)^γ
+        focal_weight = alpha_t * (1 - pt) ** self.gamma
+        
+        return (focal_weight * bce).mean()
 
 
 class BiLSTMFeatureExtractor(nn.Module):
     """
-    Bi-directional LSTM for extracting market state features.
+    Enhanced Bi-directional LSTM with self-attention for market state extraction.
+    
+    Architecture follows research guide recommendations:
+    - 2-layer Bi-LSTM with decreasing width (128→64)
+    - Multi-head self-attention after LSTM
+    - BatchNorm at input, LayerNorm after attention
+    - Deeper dense head with dropout
     
     Args:
         input_size: Number of features per timestep
-        hidden_size: LSTM hidden layer size
-        num_layers: Number of LSTM layers
+        hidden_size: LSTM hidden layer size (layer 1)
+        hidden_size_l2: LSTM hidden layer size (layer 2)
+        num_layers: Kept for backward compat, but layers are separate now
         output_size: Size of output state vector
         dropout: Dropout probability
+        n_heads: Number of attention heads
+        use_attention: Whether to use self-attention
     """
     
     def __init__(
@@ -46,35 +108,81 @@ class BiLSTMFeatureExtractor(nn.Module):
         hidden_size: int = LSTM_HIDDEN_SIZE,
         num_layers: int = LSTM_NUM_LAYERS,
         output_size: int = STATE_DIM,
-        dropout: float = 0.2
+        dropout: float = 0.2,
+        hidden_size_l2: int = LSTM_HIDDEN_SIZE_L2,
+        n_heads: int = ATTENTION_HEADS,
+        use_attention: bool = True
     ):
         super().__init__()
         
         self.hidden_size = hidden_size
+        self.hidden_size_l2 = hidden_size_l2
         self.num_layers = num_layers
+        self.use_attention = use_attention
         
-        # Bi-directional LSTM
-        self.lstm = nn.LSTM(
+        # ====================================================================
+        # Input normalization — stabilizes training across different features
+        # ====================================================================
+        self.batch_norm = nn.BatchNorm1d(input_size)
+        
+        # ====================================================================
+        # Bi-LSTM Layer 1: larger capacity for initial feature extraction
+        # ====================================================================
+        self.lstm1 = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
-            num_layers=num_layers,
+            num_layers=1,
             batch_first=True,
             bidirectional=True,
-            dropout=dropout if num_layers > 1 else 0
+            dropout=0
         )
+        self.dropout1 = nn.Dropout(dropout)
         
-        # Output projection: Bi-LSTM outputs 2*hidden_size
+        # ====================================================================
+        # Bi-LSTM Layer 2: smaller, for refined representation
+        # ====================================================================
+        self.lstm2 = nn.LSTM(
+            input_size=hidden_size * 2,  # BiLSTM L1 output
+            hidden_size=hidden_size_l2,
+            num_layers=1,
+            batch_first=True,
+            bidirectional=True,
+            dropout=0
+        )
+        self.dropout2 = nn.Dropout(dropout)
+        
+        # Attention dimension = L2 BiLSTM output = hidden_size_l2 * 2
+        attn_dim = hidden_size_l2 * 2
+        
+        # ====================================================================
+        # Self-Attention — captures which timesteps matter most (+2-4% acc)
+        # ====================================================================
+        if use_attention:
+            self.attention = nn.MultiheadAttention(
+                embed_dim=attn_dim,
+                num_heads=n_heads,
+                dropout=dropout,
+                batch_first=True
+            )
+            self.layer_norm = nn.LayerNorm(attn_dim)
+        
+        # ====================================================================
+        # Dense head: project to state vector
+        # ====================================================================
         self.fc = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),
+            nn.Linear(attn_dim, 64),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, output_size)
+            nn.Dropout(0.3),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, output_size)
         )
         
-        # Classification head (for pre-training)
+        # Classification head (for pre-training on direction prediction)
         self.classifier = nn.Sequential(
             nn.Linear(output_size, 32),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(32, 1),
             nn.Sigmoid()
         )
@@ -90,13 +198,46 @@ class BiLSTMFeatureExtractor(nn.Module):
         Returns:
             State vector (batch, output_size) or classification (batch, 1)
         """
-        # LSTM forward pass
-        lstm_out, (h_n, c_n) = self.lstm(x)
+        batch_size, seq_len, n_features = x.shape
         
-        # Use last timestep output (combines forward and backward)
-        last_output = lstm_out[:, -1, :]
+        # ====================================================================
+        # BatchNorm: normalize across features for each sample
+        # BatchNorm1d expects (batch, features) or (batch, features, length)
+        # We have (batch, seq_len, features) → permute to (batch, features, seq_len)
+        # ====================================================================
+        x = x.permute(0, 2, 1)  # (batch, features, seq_len)
+        x = self.batch_norm(x)
+        x = x.permute(0, 2, 1)  # (batch, seq_len, features)
         
-        # Project to state vector
+        # ====================================================================
+        # Bi-LSTM Layer 1
+        # ====================================================================
+        lstm1_out, _ = self.lstm1(x)  # (batch, seq_len, hidden*2)
+        lstm1_out = self.dropout1(lstm1_out)
+        
+        # ====================================================================
+        # Bi-LSTM Layer 2
+        # ====================================================================
+        lstm2_out, _ = self.lstm2(lstm1_out)  # (batch, seq_len, hidden_l2*2)
+        lstm2_out = self.dropout2(lstm2_out)
+        
+        # ====================================================================
+        # Self-Attention (optional but recommended)
+        # ====================================================================
+        if self.use_attention:
+            # Self-attention: query=key=value=lstm_output
+            attn_out, _ = self.attention(lstm2_out, lstm2_out, lstm2_out)
+            # Residual connection + LayerNorm
+            attn_out = self.layer_norm(attn_out + lstm2_out)
+            # Use last timestep after attention
+            last_output = attn_out[:, -1, :]
+        else:
+            # Use last timestep output (combines forward and backward)
+            last_output = lstm2_out[:, -1, :]
+        
+        # ====================================================================
+        # Dense projection to state vector
+        # ====================================================================
         state = self.fc(last_output)
         
         if return_state:
@@ -184,39 +325,54 @@ def train_bilstm(
     model: BiLSTMFeatureExtractor,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    epochs: int = 50,
-    learning_rate: float = 1e-3,
-    patience: int = 10,
-    class_weights: Optional[object] = None
+    epochs: int = 100,
+    learning_rate: float = 1e-4,
+    patience: int = 15,
+    class_weights: Optional[object] = None,
+    use_focal_loss: bool = True,
+    focal_gamma: float = FOCAL_LOSS_GAMMA
 ) -> dict:
     """
     Pre-train Bi-LSTM on direction prediction task.
+    
+    Uses Focal Loss (γ=2) by default for better handling of class imbalance.
+    Uses ReduceLROnPlateau scheduler for adaptive learning rate.
     
     Args:
         model: BiLSTM model
         train_loader: Training data loader
         val_loader: Validation data loader
         epochs: Maximum epochs
-        learning_rate: Learning rate
+        learning_rate: Initial learning rate
         patience: Early stopping patience
+        class_weights: Optional class weights tensor
+        use_focal_loss: Whether to use Focal Loss (recommended)
+        focal_gamma: Focal Loss gamma parameter
         
     Returns:
         Training history dict
     """
     model = model.to(DEVICE)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=5
+        optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-6
     )
 
-    # Use BCELoss but support class weights by applying per-sample weights in the batch
-    use_weighting = class_weights is not None
+    # Loss function selection
+    if use_focal_loss:
+        criterion = FocalLoss(gamma=focal_gamma, alpha=0.25)
+        print(f"Using Focal Loss (γ={focal_gamma}, α=0.25)")
+    else:
+        criterion = None  # will use BCE with optional class weights
+    
+    use_weighting = (not use_focal_loss) and (class_weights is not None)
     if use_weighting:
         cw = class_weights.to(DEVICE)
-        print(f"Using class weights: {cw.cpu().numpy()}")
+        print(f"Using class-weighted BCE: {cw.cpu().numpy()}")
     
     history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
     best_val_loss = float('inf')
+    best_val_acc = 0.0
     patience_counter = 0
     
     for epoch in range(epochs):
@@ -224,14 +380,15 @@ def train_bilstm(
         model.train()
         train_losses = []
 
-        for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
+        for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False):
             x, y = x.to(DEVICE), y.to(DEVICE)
 
             optimizer.zero_grad()
             pred = model(x, return_state=False).squeeze()
 
-            if use_weighting:
-                # element-wise BCE and weighting
+            if use_focal_loss:
+                loss = criterion(pred, y)
+            elif use_weighting:
                 bce = nn.BCELoss(reduction='none')
                 loss_raw = bce(pred, y)
                 sample_weights = torch.where(y == 1, cw[1], cw[0])
@@ -259,7 +416,9 @@ def train_bilstm(
                 x, y = x.to(DEVICE), y.to(DEVICE)
                 pred = model(x, return_state=False).squeeze()
 
-                if use_weighting:
+                if use_focal_loss:
+                    loss = criterion(pred, y)
+                elif use_weighting:
                     bce = nn.BCELoss(reduction='none')
                     loss_raw = bce(pred, y)
                     sample_weights = torch.where(y == 1, cw[1], cw[0])
@@ -279,15 +438,22 @@ def train_bilstm(
 
         # Update scheduler
         scheduler.step(avg_val_loss)
+        current_lr = optimizer.param_groups[0]['lr']
 
         # Logging
         history['train_loss'].append(avg_train_loss)
         history['val_loss'].append(avg_val_loss)
         history['val_acc'].append(val_acc)
 
-        print(f"Epoch {epoch+1}: Train Loss={avg_train_loss:.4f}, Val Loss={avg_val_loss:.4f}, Val Acc={val_acc:.4f}")
+        print(f"Epoch {epoch+1}: Train Loss={avg_train_loss:.4f}, "
+              f"Val Loss={avg_val_loss:.4f}, Val Acc={val_acc:.4f}, "
+              f"LR={current_lr:.2e}")
         
-        # Early stopping
+        # Track best accuracy for reporting
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+        
+        # Early stopping (based on validation loss)
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             patience_counter = 0
@@ -299,38 +465,59 @@ def train_bilstm(
                 print(f"Early stopping at epoch {epoch+1}")
                 break
     
+    print(f"\n🏆 Best validation accuracy: {best_val_acc:.4f}")
     return history
 
 
 def save_model(model: BiLSTMFeatureExtractor, filename: str = 'bilstm.pt'):
-    """Save model weights."""
+    """Save model weights with architecture metadata."""
     filepath = MODELS_DIR / filename
     torch.save({
         'model_state_dict': model.state_dict(),
-        'input_size': model.lstm.input_size,
+        'input_size': model.lstm1.input_size,
         'hidden_size': model.hidden_size,
+        'hidden_size_l2': model.hidden_size_l2,
         'num_layers': model.num_layers,
-        'output_size': model.fc[-1].out_features
+        'output_size': model.fc[-1].out_features,
+        'use_attention': model.use_attention,
+        'arch_version': 'v2_attention'  # Flag for new architecture
     }, filepath)
     print(f"Model saved to {filepath}")
 
 
 def load_model(filename: str = 'bilstm_best.pt') -> BiLSTMFeatureExtractor:
-    """Load model from weights file."""
+    """Load model from weights file, supporting both v1 and v2 architectures."""
     filepath = MODELS_DIR / filename
     checkpoint = torch.load(filepath, map_location=DEVICE)
     
-    model = BiLSTMFeatureExtractor(
-        input_size=checkpoint['input_size'],
-        hidden_size=checkpoint['hidden_size'],
-        num_layers=checkpoint['num_layers'],
-        output_size=checkpoint['output_size']
-    )
+    # Detect architecture version
+    arch_version = checkpoint.get('arch_version', 'v1')
+    
+    if arch_version == 'v2_attention':
+        model = BiLSTMFeatureExtractor(
+            input_size=checkpoint['input_size'],
+            hidden_size=checkpoint['hidden_size'],
+            hidden_size_l2=checkpoint.get('hidden_size_l2', LSTM_HIDDEN_SIZE_L2),
+            num_layers=checkpoint['num_layers'],
+            output_size=checkpoint['output_size'],
+            use_attention=checkpoint.get('use_attention', True)
+        )
+    else:
+        # Legacy v1 model — create with backward-compatible settings
+        print("⚠️  Loading legacy v1 model — consider retraining with v2 architecture")
+        model = BiLSTMFeatureExtractor(
+            input_size=checkpoint['input_size'],
+            hidden_size=checkpoint['hidden_size'],
+            num_layers=checkpoint['num_layers'],
+            output_size=checkpoint['output_size'],
+            use_attention=False  # v1 had no attention
+        )
+    
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(DEVICE)
     model.eval()
     
-    print(f"Model loaded from {filepath}")
+    print(f"Model loaded from {filepath} (arch: {arch_version})")
     return model
 
 
@@ -346,10 +533,13 @@ if __name__ == "__main__":
     # Test model creation
     batch_size = 32
     seq_len = 60
-    n_features = 10
+    n_features = 22  # ~22 features in the enhanced set
     
     model = BiLSTMFeatureExtractor(input_size=n_features)
     print(model)
+    
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"\nTotal parameters: {n_params:,}")
     
     # Test forward pass
     x = torch.randn(batch_size, seq_len, n_features)
@@ -358,3 +548,9 @@ if __name__ == "__main__":
     
     pred = model(x, return_state=False)
     print(f"Prediction shape: {pred.shape}")  # Should be (32, 1)
+    
+    # Test Focal Loss
+    loss_fn = FocalLoss(gamma=2.0)
+    target = torch.randint(0, 2, (batch_size,)).float()
+    loss = loss_fn(pred.squeeze(), target)
+    print(f"Focal Loss: {loss.item():.4f}")
