@@ -146,9 +146,14 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add technical indicators and derived features to OHLCV data.
     
-    Enhanced feature set for 70-75% directional accuracy target:
-    - Critical tier: RSI, MACD, ATR, Bollinger %B, Log returns, Volume ratio
-    - High tier: EMA crossover, OBV, VWAP dev, Stochastic, Candle patterns
+    v3 architecture: All indicators computed on RAW prices (no pre-smoothing)
+    to preserve predictive signal. No intermediate z-score clipping — only
+    the final rolling z-score normalization is applied downstream.
+    
+    Feature tiers:
+    - Critical: RSI (multi-scale), MACD, ATR, Bollinger %B, Log returns, Volume ratio
+    - High: EMA crossover, OBV, VWAP dev, Stochastic, Candle patterns
+    - Multi-scale: ROC at 5/20 periods, Volatility regime (short/long vol ratio)
     
     Args:
         df: DataFrame with OHLCV columns
@@ -160,35 +165,49 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna(how='any')
 
     # ======================================================================
-    # PRICE SMOOTHING
+    # SMOOTHED CLOSE — only used for trend ratio feature, NOT for indicators
     # ======================================================================
     df['close_ema'] = _ema_smooth(df['close'], span=PRICE_SMOOTHING_SPAN)
-    df['volume_ema'] = _ema_smooth(df['volume'], span=PRICE_SMOOTHING_SPAN)
     
     # ==========================================================================
-    # CRITICAL TIER — Price Features
+    # CRITICAL TIER — Price Features (computed on RAW close)
     # ==========================================================================
     
-    # Log returns on smoothed close to reduce 1-bar noise
-    df['log_return'] = np.log(df['close_ema'] / df['close_ema'].shift(1))
-    df['log_return'] = _clip_rolling_zscore(df['log_return'])
+    # Log returns on raw close to preserve market microstructure
+    df['log_return'] = np.log(df['close'] / df['close'].shift(1))
     
     # Volatility (20-period rolling std of returns)
     df['volatility'] = df['log_return'].rolling(window=20).std()
     
     # ==========================================================================
-    # CRITICAL TIER — RSI (Relative Strength Index)
+    # MULTI-SCALE — Rate of Change at different horizons
     # ==========================================================================
+    df['roc_5'] = df['close'].pct_change(periods=5)
+    df['roc_20'] = df['close'].pct_change(periods=20)
+    
+    # Volatility regime: short-term vol / long-term vol (regime detection)
+    vol_short = df['log_return'].rolling(window=10).std()
+    vol_long = df['log_return'].rolling(window=40).std()
+    df['vol_regime'] = vol_short / (vol_long + 1e-8)
+    
+    # ==========================================================================
+    # CRITICAL TIER — RSI Multi-Scale (7/14/28 periods)
+    # ==========================================================================
+    df['rsi_7'] = ta.momentum.RSIIndicator(
+        close=df['close'], window=7
+    ).rsi()
     df['rsi'] = ta.momentum.RSIIndicator(
-        close=df['close_ema'],
-        window=14
+        close=df['close'], window=14
+    ).rsi()
+    df['rsi_28'] = ta.momentum.RSIIndicator(
+        close=df['close'], window=28
     ).rsi()
     
     # ==========================================================================
-    # CRITICAL TIER — MACD (Moving Average Convergence Divergence)
+    # CRITICAL TIER — MACD (on raw close)
     # ==========================================================================
     macd = ta.trend.MACD(
-        close=df['close_ema'],
+        close=df['close'],
         window_slow=26,
         window_fast=12,
         window_sign=9
@@ -197,17 +216,17 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['macd_hist'] = macd.macd_diff()
     
     # ==========================================================================
-    # CRITICAL TIER — Bollinger Bands %B
+    # CRITICAL TIER — Bollinger Bands %B (on raw close)
     # ==========================================================================
     bb = ta.volatility.BollingerBands(
-        close=df['close_ema'],
+        close=df['close'],
         window=20,
         window_dev=2
     )
-    df['bb_pct'] = bb.bollinger_pband()  # %B indicator
+    df['bb_pct'] = bb.bollinger_pband()
     
     # ==========================================================================
-    # CRITICAL TIER — ATR (Average True Range) [NEW]
+    # CRITICAL TIER — ATR (Average True Range)
     # ==========================================================================
     df['atr'] = ta.volatility.AverageTrueRange(
         high=df['high'],
@@ -219,14 +238,13 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['atr_pct'] = df['atr'] / df['close']
     
     # ==========================================================================
-    # CRITICAL TIER — Volume Ratio [NEW]
+    # CRITICAL TIER — Volume Ratio (no intermediate clipping)
     # ==========================================================================
     vol_ma = df['volume'].rolling(window=20, min_periods=5).mean()
     df['volume_ratio'] = df['volume'] / (vol_ma + 1e-8)
-    df['volume_ratio'] = _clip_rolling_zscore(df['volume_ratio'])
     
     # ==========================================================================
-    # HIGH TIER — OBV (On-Balance Volume) [NEW]
+    # HIGH TIER — OBV (On-Balance Volume)
     # ==========================================================================
     df['obv'] = ta.volume.OnBalanceVolumeIndicator(
         close=df['close'],
@@ -234,19 +252,17 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     ).on_balance_volume()
     # Use rate of change of OBV (raw OBV is non-stationary)
     df['obv_roc'] = df['obv'].pct_change(periods=5)
-    df['obv_roc'] = _clip_rolling_zscore(df['obv_roc'])
     
     # ==========================================================================
-    # HIGH TIER — EMA 9/21 Crossover Signal [NEW]
+    # HIGH TIER — EMA 9/21 Crossover Signal
     # ==========================================================================
     ema_9 = ta.trend.EMAIndicator(close=df['close'], window=9).ema_indicator()
     ema_21 = ta.trend.EMAIndicator(close=df['close'], window=21).ema_indicator()
     # Normalized distance between fast and slow EMA
     df['ema_cross'] = (ema_9 - ema_21) / (df['close'] + 1e-8)
-    df['ema_cross'] = _clip_rolling_zscore(df['ema_cross'])
     
     # ==========================================================================
-    # HIGH TIER — Stochastic Oscillator %K/%D [NEW]
+    # HIGH TIER — Stochastic Oscillator %K/%D
     # ==========================================================================
     stoch = ta.momentum.StochasticOscillator(
         high=df['high'],
@@ -259,18 +275,16 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['stoch_d'] = stoch.stoch_signal()
     
     # ==========================================================================
-    # HIGH TIER — VWAP Deviation [NEW]
+    # HIGH TIER — VWAP Deviation (no intermediate clipping)
     # ==========================================================================
-    # Session-based VWAP approximation using rolling window
     typical_price = (df['high'] + df['low'] + df['close']) / 3.0
     cum_tp_vol = (typical_price * df['volume']).rolling(window=96, min_periods=10).sum()
     cum_vol = df['volume'].rolling(window=96, min_periods=10).sum()
     df['vwap'] = cum_tp_vol / (cum_vol + 1e-8)
     df['vwap_dev'] = (df['close'] - df['vwap']) / (df['vwap'] + 1e-8)
-    df['vwap_dev'] = _clip_rolling_zscore(df['vwap_dev'])
     
     # ==========================================================================
-    # HIGH TIER — Candle Structure Features [NEW]
+    # HIGH TIER — Candle Structure Features
     # ==========================================================================
     candle_range = df['high'] - df['low']
     # Body ratio: signed, positive = bullish, negative = bearish
@@ -279,30 +293,26 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['upper_wick'] = (df['high'] - df[['open', 'close']].max(axis=1)) / (candle_range + 1e-8)
     
     # ==========================================================================
-    # EXISTING FEATURES (kept)
+    # EXISTING FEATURES (updated to use raw data)
     # ==========================================================================
     
     # Price position relative to range
     df['price_range'] = (df['high'] - df['low']) / df['close']
-    df['price_range'] = _clip_rolling_zscore(df['price_range'])
     
-    # Volume change
-    df['volume_change'] = df['volume_ema'].pct_change()
-    df['volume_change'] = _clip_rolling_zscore(df['volume_change'])
+    # Volume change (raw volume, no EMA smoothing)
+    df['volume_change'] = df['volume'].pct_change()
     
-    # Smoothed trend feature instead of a stack of correlated moving averages
+    # Trend ratio: raw price vs smoothed — measures deviation from trend
     df['price_ema_ratio'] = df['close'] / df['close_ema']
     
     # ==========================================================================
-    # FRACTIONAL DIFFERENCING
+    # FRACTIONAL DIFFERENCING (on raw close)
     # ==========================================================================
     try:
-        df['frac_diff'] = fractional_diff_ffd(df['close_ema'], d=0.4)
+        df['frac_diff'] = fractional_diff_ffd(df['close'], d=0.4)
     except Exception as e:
         print(f"Error calculating fractional diff: {e}")
         df['frac_diff'] = df['log_return'] # Fallback
-
-    df['frac_diff'] = _clip_rolling_zscore(df['frac_diff'])
 
     # ==========================================================================
     # TARGET (for Bi-LSTM pre-training)
@@ -310,12 +320,12 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # Next candle direction (1 = up, 0 = down)
     df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
-
-    # Keep a stable trend proxy for downstream models
-    df['price_ema_ratio'] = _clip_rolling_zscore(df['price_ema_ratio'])
+    
+    # Return magnitude for label smoothing (Phase 3)
+    df['return_magnitude'] = df['close'].pct_change().shift(-1).abs()
 
     # Drop intermediate helper columns to keep the final dataset compact
-    df.drop(columns=['close_ema', 'volume_ema', 'macd', 'vwap', 'obv',
+    df.drop(columns=['close_ema', 'macd', 'vwap', 'obv',
                      'atr'], inplace=True, errors='ignore')
     
     # Drop NaN rows from rolling calculations
@@ -386,13 +396,15 @@ def prepare_features(
     print(f"After features: {len(df):,} candles, {len(df.columns)} columns")
     
     # ======================================================================
-    # Enhanced candidate feature set for 70-75% accuracy target
+    # v3 candidate feature set — multi-scale + raw signal preservation
     # ======================================================================
     candidate_raw_cols = [
         # Critical tier (always include)
         'log_return', 'volatility', 'rsi', 'macd_hist', 'bb_pct',
         'atr_pct', 'volume_ratio',
-        # High tier (include for 70-75%)
+        # Multi-scale tier (new in v3)
+        'rsi_7', 'rsi_28', 'roc_5', 'roc_20', 'vol_regime',
+        # High tier
         'obv_roc', 'ema_cross', 'stoch_k', 'stoch_d',
         'vwap_dev', 'candle_body', 'upper_wick',
         # Existing features
@@ -463,12 +475,17 @@ def get_feature_columns() -> list:
     if saved:
         return saved
 
-    # Default fallback — expanded feature set
+    # Default fallback — v3 expanded feature set with multi-scale
     return [
         'close', 'volume',
         'log_return_norm', 'volatility_norm', 'rsi_norm',
         'macd_hist_norm', 'bb_pct_norm', 'atr_pct_norm',
-        'volume_ratio_norm', 'obv_roc_norm', 'ema_cross_norm',
+        'volume_ratio_norm',
+        # Multi-scale features
+        'rsi_7_norm', 'rsi_28_norm', 'roc_5_norm', 'roc_20_norm',
+        'vol_regime_norm',
+        # High tier
+        'obv_roc_norm', 'ema_cross_norm',
         'stoch_k_norm', 'stoch_d_norm', 'vwap_dev_norm',
         'candle_body_norm', 'upper_wick_norm',
         'price_range_norm', 'volume_change_norm',

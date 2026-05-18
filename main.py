@@ -97,8 +97,9 @@ def cmd_pretrain(args):
     if 'target' not in df.columns:
         print("\n⚠️  Creating target column (price direction)...")
         # Create target: 1 if next candle closes higher, 0 otherwise
-        df['future_return'] = df['close'].pct_change().shift(-1)
-        df['target'] = (df['future_return'] > 0).astype(int)
+        # Must match features.py target definition exactly
+        df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
+        df = df.iloc[:-1]  # Drop last row (no future data)
         df = df.dropna()
         print(f"Target column created. Dataset size: {len(df)}")
     
@@ -222,7 +223,10 @@ def cmd_pretrain(args):
         patience=args.patience,
         class_weights=class_weights if not args.focal_loss else None,
         use_focal_loss=args.focal_loss,
-        focal_gamma=args.focal_gamma
+        focal_gamma=args.focal_gamma,
+        label_smoothing=args.label_smoothing,
+        use_mixup=args.mixup,
+        mixup_alpha=args.mixup_alpha
     )
     
     # ============================================================
@@ -520,12 +524,20 @@ def main():
                                 help='Use self-attention (default: True)')
     pretrain_parser.add_argument('--no-attention', dest='attention', action='store_false',
                                 help='Disable self-attention')
-    pretrain_parser.add_argument('--focal-loss', action='store_true', default=True,
-                                help='Use Focal Loss (default: True)')
+    pretrain_parser.add_argument('--focal-loss', action='store_true', default=False,
+                                help='Use Focal Loss (default: OFF for balanced classes)')
     pretrain_parser.add_argument('--no-focal-loss', dest='focal_loss', action='store_false',
                                 help='Use BCE Loss instead of Focal Loss')
     pretrain_parser.add_argument('--focal-gamma', type=float, default=FOCAL_LOSS_GAMMA,
                                 help=f'Focal Loss gamma (default: {FOCAL_LOSS_GAMMA})')
+    pretrain_parser.add_argument('--label-smoothing', type=float, default=0.05,
+                                help='Label smoothing epsilon (default: 0.05)')
+    pretrain_parser.add_argument('--mixup', action='store_true', default=True,
+                                help='Use Mixup augmentation (default: True)')
+    pretrain_parser.add_argument('--no-mixup', dest='mixup', action='store_false',
+                                help='Disable Mixup augmentation')
+    pretrain_parser.add_argument('--mixup-alpha', type=float, default=0.2,
+                                help='Mixup alpha parameter (default: 0.2)')
     
     # Train command
     train_parser = subparsers.add_parser('train', help='Train PPO agent')

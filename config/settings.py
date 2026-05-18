@@ -34,7 +34,7 @@ BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
 SYMBOL = "BTC/USDT"
 TIMEFRAME_RAW = "1m"       # Raw data timeframe
 TIMEFRAME_TRADE = "15m"    # Trading timeframe
-LOOKBACK_DAYS = 180        # 6 months of historical data
+LOOKBACK_DAYS = 365        # 1 year of historical data (doubled for better generalization)
 
 # =============================================================================
 # MODEL PARAMETERS
@@ -126,6 +126,9 @@ FEATURE_COLUMNS = [
     'log_return_norm', 'volatility_norm', 'rsi_norm',
     'macd_hist_norm', 'bb_pct_norm', 'atr_pct_norm',
     'volume_ratio_norm',
+    # Multi-scale tier (v3)
+    'rsi_7_norm', 'rsi_28_norm', 'roc_5_norm', 'roc_20_norm',
+    'vol_regime_norm',
     # High tier
     'obv_roc_norm', 'ema_cross_norm',
     'stoch_k_norm', 'stoch_d_norm',

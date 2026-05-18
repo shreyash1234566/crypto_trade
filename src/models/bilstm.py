@@ -81,6 +81,30 @@ class FocalLoss(nn.Module):
         return (focal_weight * bce).mean()
 
 
+class TemporalAttentionPool(nn.Module):
+    """
+    Learn to weight timesteps based on importance instead of using only
+    the last timestep. This preserves information from all 60 candles.
+    
+    Architecture: 2-layer MLP with tanh activation produces per-timestep
+    importance scores, softmax normalizes them, then weighted sum.
+    """
+    
+    def __init__(self, dim: int):
+        super().__init__()
+        self.attention = nn.Sequential(
+            nn.Linear(dim, dim // 2),
+            nn.Tanh(),
+            nn.Linear(dim // 2, 1)
+        )
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Args: x (batch, seq_len, dim). Returns: (batch, dim)"""
+        weights = self.attention(x)           # (batch, seq_len, 1)
+        weights = torch.softmax(weights, dim=1)
+        return (weights * x).sum(dim=1)       # (batch, dim)
+
+
 class BiLSTMFeatureExtractor(nn.Module):
     """
     Enhanced Bi-directional LSTM with self-attention for market state extraction.
@@ -157,6 +181,9 @@ class BiLSTMFeatureExtractor(nn.Module):
         # ====================================================================
         # Self-Attention — captures which timesteps matter most (+2-4% acc)
         # ====================================================================
+        # Temporal attention pooling (replaces last-timestep-only)
+        self.temporal_pool = TemporalAttentionPool(attn_dim)
+        
         if use_attention:
             self.attention = nn.MultiheadAttention(
                 embed_dim=attn_dim,
@@ -229,11 +256,11 @@ class BiLSTMFeatureExtractor(nn.Module):
             attn_out, _ = self.attention(lstm2_out, lstm2_out, lstm2_out)
             # Residual connection + LayerNorm
             attn_out = self.layer_norm(attn_out + lstm2_out)
-            # Use last timestep after attention
-            last_output = attn_out[:, -1, :]
+            # Temporal attention pooling across ALL timesteps
+            last_output = self.temporal_pool(attn_out)
         else:
-            # Use last timestep output (combines forward and backward)
-            last_output = lstm2_out[:, -1, :]
+            # Temporal attention pooling without self-attention
+            last_output = self.temporal_pool(lstm2_out)
         
         # ====================================================================
         # Dense projection to state vector
@@ -329,14 +356,18 @@ def train_bilstm(
     learning_rate: float = 1e-4,
     patience: int = 15,
     class_weights: Optional[object] = None,
-    use_focal_loss: bool = True,
-    focal_gamma: float = FOCAL_LOSS_GAMMA
+    use_focal_loss: bool = False,
+    focal_gamma: float = FOCAL_LOSS_GAMMA,
+    label_smoothing: float = 0.05,
+    use_mixup: bool = True,
+    mixup_alpha: float = 0.2
 ) -> dict:
     """
     Pre-train Bi-LSTM on direction prediction task.
     
-    Uses Focal Loss (γ=2) by default for better handling of class imbalance.
-    Uses ReduceLROnPlateau scheduler for adaptive learning rate.
+    v3 defaults: BCE loss (not Focal — classes are balanced), label smoothing
+    (ε=0.05 to soften ambiguous near-zero-return samples), and Mixup
+    augmentation (α=0.2 to increase effective dataset size).
     
     Args:
         model: BiLSTM model
@@ -370,6 +401,9 @@ def train_bilstm(
         cw = class_weights.to(DEVICE)
         print(f"Using class-weighted BCE: {cw.cpu().numpy()}")
     
+    print(f"Label smoothing: ε={label_smoothing}")
+    print(f"Mixup augmentation: {'ON (α=' + str(mixup_alpha) + ')' if use_mixup else 'OFF'}")
+    
     history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
     best_val_loss = float('inf')
     best_val_acc = 0.0
@@ -382,6 +416,14 @@ def train_bilstm(
 
         for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False):
             x, y = x.to(DEVICE), y.to(DEVICE)
+            
+            # Apply label smoothing: soften hard 0/1 targets
+            if label_smoothing > 0:
+                y = y * (1 - label_smoothing) + 0.5 * label_smoothing
+            
+            # Apply Mixup augmentation
+            if use_mixup:
+                x, y, _ = mixup_data(x, y, alpha=mixup_alpha)
 
             optimizer.zero_grad()
             pred = model(x, return_state=False).squeeze()
@@ -391,7 +433,7 @@ def train_bilstm(
             elif use_weighting:
                 bce = nn.BCELoss(reduction='none')
                 loss_raw = bce(pred, y)
-                sample_weights = torch.where(y == 1, cw[1], cw[0])
+                sample_weights = torch.where(y > 0.5, cw[1], cw[0])
                 loss = (loss_raw * sample_weights).mean()
             else:
                 loss = nn.BCELoss()(pred, y)
@@ -527,6 +569,36 @@ def freeze_model(model: BiLSTMFeatureExtractor):
         param.requires_grad = False
     model.eval()
     print("Model frozen for inference")
+
+
+def mixup_data(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.2):
+    """
+    Apply Mixup augmentation — interpolates between random pairs of
+    training samples to create synthetic data points.
+    
+    This acts as a strong regularizer and improves generalization,
+    especially when training data is limited (~13K sequences).
+    
+    Args:
+        x: Input tensor (batch, seq_len, features)
+        y: Target tensor (batch,)
+        alpha: Beta distribution parameter (lower = less mixing)
+        
+    Returns:
+        Mixed inputs, mixed targets, mixing coefficient
+    """
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1.0
+    
+    batch_size = x.size(0)
+    index = torch.randperm(batch_size, device=x.device)
+    
+    mixed_x = lam * x + (1 - lam) * x[index]
+    mixed_y = lam * y + (1 - lam) * y[index]
+    
+    return mixed_x, mixed_y, lam
 
 
 if __name__ == "__main__":
