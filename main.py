@@ -1,580 +1,318 @@
+#!/usr/bin/env python3
 """
-Main Orchestrator - CLI for running the trading bot.
+╔══════════════════════════════════════════════════════════════════════╗
+║          CRYPTO TRADING PRO — Research-Backed Trading System         ║
+║                                                                      ║
+║  Strategies:                                                         ║
+║   1. Multi-Indicator Confluence (EMA+RSI+MACD+ATR)                  ║
+║      → IEEE paper: profit factor 3.5, win rate 60%                  ║
+║   2. MACD-ADX Trend Momentum                                         ║
+║      → arXiv:2511.00665: optimal params for BTC/USDT 2024           ║
+║   3. BB-RSI Mean Reversion                                           ║
+║      → ClucMay72018: 80% win rate, Sharpe 1.84                      ║
+║   4. ML-Enhanced (LogReg rolling window filter)                      ║
+║      → Research paper: reduces false positives by 30-40%            ║
+║                                                                      ║
+║  Features:                                                           ║
+║   - No lookahead bias (signals on close, execute on next open)       ║
+║   - Realistic fees (0.1%) + slippage (0.05%)                        ║
+║   - Risk-based position sizing (2% per trade)                        ║
+║   - Walk-forward validation (anti-overfitting)                       ║
+║   - Comprehensive performance reporting                              ║
+╚══════════════════════════════════════════════════════════════════════╝
 
-Commands:
-- fetch: Download historical data
-- process: Resample and add features
-- pretrain: Pre-train Bi-LSTM on direction prediction
-- train: Train PPO agent with purged validation
-- validate: Run purged walk-forward validation
-- paper: Run paper trading
+Usage:
+  python main.py --symbol BTC/USDT --timeframe 1h --days 365 --mode backtest
+  python main.py --mode compare      # compare all strategies
+  python main.py --mode paper        # paper trading on latest data
 """
 import argparse
 import sys
+import os
 from pathlib import Path
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).parent
-sys.path.insert(0, str(PROJECT_ROOT))
+# Add project root
+sys.path.insert(0, str(Path(__file__).parent))
 
-from config.settings import (
-    SYMBOL, TIMEFRAME_RAW, TIMEFRAME_TRADE, LOOKBACK_DAYS,
-    SEQUENCE_LENGTH, DEVICE_LSTM, MODELS_DIR,
-    REWARD_FLAT_PENALTY, FOCAL_LOSS_GAMMA
-)
+import pandas as pd
+import numpy as np
+import warnings
+warnings.filterwarnings('ignore')
 
 
-def cmd_fetch(args):
-    """Fetch historical data from Binance."""
-    from src.data.fetcher import fetch_ohlcv
-    
-    print(f"Fetching {args.symbol} {args.timeframe} data for {args.days} days...")
-    df = fetch_ohlcv(
+def banner():
+    print("""
+╔══════════════════════════════════════════════════════════════════╗
+║         🚀 CRYPTO TRADING PRO — Research-Backed System          ║
+╚══════════════════════════════════════════════════════════════════╝
+""")
+
+
+def run_backtest(symbol: str, timeframe: str, days: int,
+                 strategy_name: str, use_ml: bool,
+                 walk_forward: bool, config: dict) -> dict:
+    """Run a full backtest and return results."""
+    from data.fetcher import fetch_ohlcv
+    from data.features import add_all_features
+    from backtest.engine import BacktestEngine, BacktestConfig, walk_forward_backtest
+
+    # ── Load data ──────────────────────────────────────────────────────
+    print(f"\n[1/4] Fetching {symbol} {timeframe} data ({days} days)...")
+    df = fetch_ohlcv(symbol, timeframe, days)
+    print(f"      → {len(df):,} candles from {df.index[0].date()} to {df.index[-1].date()}")
+
+    # ── Add features ───────────────────────────────────────────────────
+    print(f"[2/4] Computing technical indicators...")
+    df = add_all_features(df)
+    print(f"      → {len(df):,} candles after indicator warmup")
+
+    # ── Load strategy ──────────────────────────────────────────────────
+    print(f"[3/4] Generating signals with {strategy_name}...")
+    strategy = _load_strategy(strategy_name, config)
+
+    if use_ml:
+        from models.ml_enhancer import MLSignalEnhancer
+        strategy = MLSignalEnhancer(strategy)
+        print(f"      → ML enhancement enabled (LogisticRegression rolling filter)")
+
+    # ── Backtest ───────────────────────────────────────────────────────
+    bt_config = BacktestConfig(
+        initial_capital=config.get('capital', 10000),
+        fee_rate=config.get('fee_rate', 0.001),
+        slippage_rate=config.get('slippage', 0.0005),
+        risk_per_trade=config.get('risk', 0.02),
+        max_open_trades=1,
+    )
+
+    print(f"[4/4] Running {'walk-forward' if walk_forward else 'full'} backtest...")
+
+    if walk_forward:
+        result = walk_forward_backtest(df, strategy, bt_config,
+                                       train_size=config.get('train_days', 30),
+                                       test_size=config.get('test_days', 7),
+                                       step_size=config.get('step_days', 7))
+        result['df'] = df
+        result['strategy_name'] = strategy.name
+    else:
+        signals = strategy.generate_signals(df)
+        engine = BacktestEngine(bt_config)
+        result = engine.run(df, signals)
+        result['df'] = df
+        result['strategy_name'] = strategy.name
+
+    return result
+
+
+def _load_strategy(name: str, config: dict = None):
+    """Load a strategy by name."""
+    if name == 'mic':
+        from strategies.mic_strategy import MultiIndicatorConfluenceStrategy
+        return MultiIndicatorConfluenceStrategy(config)
+    elif name == 'macd_adx':
+        from strategies.macd_adx_strategy import MACDADXStrategy
+        return MACDADXStrategy(config)
+    elif name == 'bb_rsi':
+        from strategies.bb_rsi_strategy import BBRSIMeanReversionStrategy
+        return BBRSIMeanReversionStrategy(config)
+    else:
+        raise ValueError(f"Unknown strategy: {name}. Use: mic, macd_adx, bb_rsi")
+
+
+def cmd_backtest(args):
+    """Run single strategy backtest."""
+    result = run_backtest(
         symbol=args.symbol,
         timeframe=args.timeframe,
         days=args.days,
-        save=True
-    )
-    print(f"Fetched {len(df):,} candles")
-
-
-def cmd_process(args):
-    """Process data: resample and add features."""
-    from src.data.resampler import resample_and_save
-    from src.data.features import prepare_features
-    from src.data.fear_greed import fetch_fear_greed, merge_fear_greed, save_fear_greed
-    
-    print(f"Resampling to {args.timeframe}...")
-    df = resample_and_save(
-        symbol=args.symbol,
-        source_timeframe=TIMEFRAME_RAW,
-        target_timeframe=args.timeframe
+        strategy_name=args.strategy,
+        use_ml=args.ml,
+        walk_forward=args.walk_forward,
+        config={'capital': args.capital}
     )
 
-    if args.fear_greed:
-        print("Fetching Fear & Greed Index...")
-        fg_df = fetch_fear_greed(days=365)
-        if fg_df is not None:
-            save_fear_greed(days=365)
-            df = merge_fear_greed(df, fg_df)
-    
-    print("Adding features (enhanced feature set for 70-75% target)...")
-    df = prepare_features(symbol=args.symbol, timeframe=args.timeframe, df=df)
-    
-    print(f"Processed {len(df):,} candles with {len(df.columns)} columns")
+    from reports.reporter import generate_report
+    df = result.pop('df')
+    name = result.pop('strategy_name')
+
+    report = generate_report(result, name, args.symbol, args.timeframe, df,
+                              output_dir=Path('reports'))
+    print("\n" + report)
+
+    # Save equity curve
+    if 'equity_curve' in result:
+        _plot_equity(result['equity_curve'], df, name, args.symbol)
 
 
-def cmd_pretrain(args):
-    """Pre-train Bi-LSTM on direction prediction with enhanced architecture.
-    
-    v2 architecture includes:
-    - 2-layer Bi-LSTM (128→64) with self-attention
-    - Focal Loss (γ=2) for class imbalance
-    - ReduceLROnPlateau scheduler
-    - BatchNorm + LayerNorm for training stability
-    """
-    import torch
-    import torch.nn as nn
-    from torch.utils.data import DataLoader, random_split
-    from src.data.features import load_featured_data, get_feature_columns
-    from src.models.bilstm import (
-        BiLSTMFeatureExtractor, SequenceDataset, 
-        create_sequences, train_bilstm, save_model
-    )
-    import numpy as np
-    
-    print("Loading featured data...")
-    df = load_featured_data(symbol=args.symbol, timeframe=args.timeframe)
-    
-    # Get feature columns (use normalized versions)
-    feature_cols = get_feature_columns()
-    feature_cols = [c for c in feature_cols if c in df.columns]
-    print(f"Using {len(feature_cols)} features: {feature_cols}")
-    
-    # ============================================================
-    # FIX #1: Ensure target column exists and is properly created
-    # ============================================================
-    if 'target' not in df.columns:
-        print("\n⚠️  Creating target column (price direction)...")
-        # Create target: 1 if next candle closes higher, 0 otherwise
-        # Must match features.py target definition exactly
-        df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
-        df = df.iloc[:-1]  # Drop last row (no future data)
-        df = df.dropna()
-        print(f"Target column created. Dataset size: {len(df)}")
-    
-    # ============================================================
-    # FIX #2: Check and report class distribution
-    # ============================================================
-    print("\n" + "="*60)
-    print("CLASS DISTRIBUTION ANALYSIS")
-    print("="*60)
-    target_counts = df['target'].value_counts()
-    target_pcts = df['target'].value_counts(normalize=True)
-    
-    print(f"Class 0 (Down): {target_counts.get(0, 0):,} samples ({target_pcts.get(0, 0):.2%})")
-    print(f"Class 1 (Up):   {target_counts.get(1, 0):,} samples ({target_pcts.get(1, 0):.2%})")
-    
-    imbalance_ratio = target_pcts.max() / target_pcts.min()
-    print(f"Imbalance ratio: {imbalance_ratio:.3f}x")
-    
-    if imbalance_ratio > 1.15:
-        print("⚠️  IMBALANCED CLASSES DETECTED")
-        if not args.focal_loss:
-            print("   Applying class weighting to loss function...")
-        use_class_weights = True
-        # Calculate weights: inverse of class frequency
-        class_weights = torch.FloatTensor([
-            len(df) / (2 * target_counts.get(0, 1)),
-            len(df) / (2 * target_counts.get(1, 1))
-        ]).to(DEVICE_LSTM)
-    else:
-        print("✅ Classes are balanced")
-        use_class_weights = False
-        class_weights = None
-    
-    # ============================================================
-    # FIX #3: Check feature quality
-    # ============================================================
-    print("\n" + "="*60)
-    print("FEATURE QUALITY CHECK")
-    print("="*60)
-    
-    correlations = {}
-    for col in feature_cols:
-        corr = df[col].corr(df['target'])
-        correlations[col] = abs(corr)
-    
-    sorted_corrs = sorted(correlations.items(), key=lambda x: x[1], reverse=True)
-    print("Top 10 most predictive features:")
-    for feat, corr in sorted_corrs[:10]:
-        print(f"  {feat}: {corr:.4f}")
-    
-    max_corr = sorted_corrs[0][1]
-    if max_corr < 0.03:
-        print("\n⚠️  WARNING: Very weak feature-target correlation!")
-        print("   Max correlation:", max_corr)
-        print("   The model may struggle to learn. Consider:")
-        print("   - Adding more informative features")
-        print("   - Using longer sequence lengths")
-        print("   - Increasing training data")
-    else:
-        print(f"\n✅ Detectable signal (max correlation: {max_corr:.4f})")
-    
-    # ============================================================
-    # Create sequences
-    # ============================================================
-    print("\n" + "="*60)
-    print("CREATING SEQUENCES")
-    print("="*60)
-    
-    features, targets = create_sequences(df, feature_cols, 'target', SEQUENCE_LENGTH)
-    print(f"Sequence length: {SEQUENCE_LENGTH}")
-    print(f"Total sequences: {len(features)}")
-    
-    # Create dataset
-    dataset = SequenceDataset(features, targets, SEQUENCE_LENGTH)
-    
-    # Split train/val (80/20) — chronological split to avoid leakage
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    # Use sequential split (not random!) to preserve temporal ordering
-    train_dataset = torch.utils.data.Subset(dataset, range(train_size))
-    val_dataset = torch.utils.data.Subset(dataset, range(train_size, train_size + val_size))
-    
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    
-    print(f"Train sequences: {train_size:,}")
-    print(f"Val sequences:   {val_size:,}")
-    
-    # ============================================================
-    # Create model (v2 architecture with attention)
-    # ============================================================
-    print("\n" + "="*60)
-    print("MODEL INITIALIZATION (v2 — Attention BiLSTM)")
-    print("="*60)
-    
-    model = BiLSTMFeatureExtractor(
-        input_size=len(feature_cols),
-        use_attention=args.attention
-    )
-    n_params = sum(p.numel() for p in model.parameters())
-    print(f"Parameters: {n_params:,}")
-    print(f"Device: {DEVICE_LSTM}")
-    print(f"Learning rate: {args.lr}")
-    print(f"Batch size: {args.batch_size}")
-    print(f"Attention: {'ON' if args.attention else 'OFF'}")
-    print(f"Loss: {'Focal Loss (γ={})'.format(args.focal_gamma) if args.focal_loss else 'BCE'}")
-    
-    # ============================================================
-    # Train
-    # ============================================================
-    print("\n" + "="*60)
-    print("STARTING TRAINING")
-    print("="*60)
-    
-    history = train_bilstm(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        epochs=args.epochs,
-        learning_rate=args.lr,
-        patience=args.patience,
-        class_weights=class_weights if not args.focal_loss else None,
-        use_focal_loss=args.focal_loss,
-        focal_gamma=args.focal_gamma,
-        label_smoothing=args.label_smoothing,
-        use_mixup=args.mixup,
-        mixup_alpha=args.mixup_alpha
-    )
-    
-    # ============================================================
-    # Results
-    # ============================================================
-    print("\n" + "="*60)
-    print("TRAINING COMPLETE")
-    print("="*60)
-    
-    best_val_acc = max(history['val_acc'])
-    best_val_loss = min(history['val_loss'])
-    
-    print(f"Best validation accuracy: {best_val_acc:.4f}")
-    print(f"Best validation loss: {best_val_loss:.4f}")
-    
-    # Baseline comparison
-    baseline_acc = target_pcts.max()
-    print(f"Baseline (always predict majority): {baseline_acc:.4f}")
-    
-    improvement = best_val_acc - baseline_acc
-    if improvement > 0.01:
-        print(f"✅ Model beats baseline by {improvement:.4f}")
-    else:
-        print(f"⚠️  Model is NOT better than baseline (diff: {improvement:.4f})")
-        print("\nRECOMMENDATIONS:")
-        print("1. Try lower learning rate: --lr 0.00005")
-        print("2. Increase sequence length in config/settings.py")
-        print("3. Increase training data (more days)")
-        print("4. Check feature quality — run process command again")
-        print("\nFor now, proceed with --no-lstm for RL training")
-    
-    # Accuracy target assessment
-    print("\n" + "="*60)
-    print("ACCURACY TARGET ASSESSMENT")
-    print("="*60)
-    if best_val_acc >= 0.70:
-        print("🏆 TARGET ACHIEVED: 70%+ directional accuracy!")
-    elif best_val_acc >= 0.65:
-        print("📈 GOOD PROGRESS: 65%+ — close to 70% target")
-        print("   Consider: more epochs, lower LR, or adding features")
-    elif best_val_acc >= 0.55:
-        print("📊 LEARNING DETECTED: 55%+ — model is learning")
-        print("   Consider: more data, hyperparameter tuning")
-    else:
-        print("⚠️  LOW ACCURACY: model may need architectural changes")
+def cmd_compare(args):
+    """Compare all strategies."""
+    all_results = {}
+    strategy_names = ['mic', 'macd_adx', 'bb_rsi']
+    use_ml = [False, False, True]  # Apply ML to bb_rsi
 
-
-def cmd_train(args):
-    """Train PPO agent with purged validation."""
-    import numpy as np
-    from src.data.features import load_featured_data, get_feature_columns
-    from src.environment.trading_env import CryptoTradingEnv
-    from src.validation.purged_cv import PurgedWalkForward
-    from src.models.bilstm import load_model as load_bilstm, freeze_model
-    from src.models.ppo_agent import create_ppo_agent, train_ppo, save_ppo_agent, evaluate_agent
-    
-    print("Loading data...")
-    df = load_featured_data(symbol=args.symbol, timeframe=args.timeframe)
-    feature_cols = get_feature_columns()
-    feature_cols = [c for c in feature_cols if c in df.columns]
-    
-    # Load pre-trained Bi-LSTM if available
-    bilstm_model = None
-    if args.use_lstm:
+    for i, strat in enumerate(strategy_names):
+        print(f"\n{'─'*60}")
+        print(f"  Running strategy: {strat.upper()}")
+        print(f"{'─'*60}")
         try:
-            bilstm_model = load_bilstm('bilstm_best.pt')
-            freeze_model(bilstm_model)
-            print("Loaded pre-trained Bi-LSTM")
-        except FileNotFoundError:
-            print("No pre-trained Bi-LSTM found, using raw features")
-    
-    # Set up purged walk-forward validation
-    cv = PurgedWalkForward(
-        train_period=args.train_days,
-        test_period=args.test_days,
-        embargo_period=4  # 1 hour for 15-min data
-    )
-    
-    # Get splits
-    X = df[feature_cols].values
-    n_splits = cv.get_n_splits(X)
-    print(f"Running {n_splits} walk-forward folds")
-    
-    all_metrics = []
-    
-    for fold, (train_idx, test_idx) in enumerate(cv.split(X)):
-        print(f"\n{'='*50}")
-        print(f"FOLD {fold + 1}/{n_splits}")
-        print(f"{'='*50}")
-        
-        # Split data
-        train_df = df.iloc[train_idx].reset_index(drop=True)
-        test_df = df.iloc[test_idx].reset_index(drop=True)
-        
-        # Create environments
-        train_env = CryptoTradingEnv(
-            train_df, feature_cols,
-            use_lstm_features=args.use_lstm,
-            lstm_model=bilstm_model,
-            flat_penalty=REWARD_FLAT_PENALTY
-        )
-        test_env = CryptoTradingEnv(
-            test_df, feature_cols,
-            use_lstm_features=args.use_lstm,
-            lstm_model=bilstm_model,
-            flat_penalty=REWARD_FLAT_PENALTY
-        )
-        
-        # Wrap test_env for RecurrentPPO evaluation
-        from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-        test_env = DummyVecEnv([lambda: test_env])
-        # We need to normalize it using the training stats
-        # But we don't have easy access to the training env's stats here unless we extract them from the model
-        # create_ppo_agent wraps train_env in VecNormalize.
-        
-        # Create and train PPO agent
-        model = create_ppo_agent(
-            train_env,
-            bilstm_model=bilstm_model,
-            tensorboard_log=str(MODELS_DIR / 'tensorboard' / f'fold_{fold+1}')
-        )
-        
-        # Get the VecNormalize wrapper from the model
-        train_vec_env = model.get_env()
-        # Apply same normalization to test_env
-        if isinstance(train_vec_env, VecNormalize):
-             # We can't easily share the stats object, but we can save/load or just use a new one if we don't care about exact match (but we do!)
-             # Actually, train_ppo handles eval_env normalization internally if passed.
-             pass
+            result = run_backtest(
+                symbol=args.symbol,
+                timeframe=args.timeframe,
+                days=args.days,
+                strategy_name=strat,
+                use_ml=use_ml[i],
+                walk_forward=True,
+                config={'capital': args.capital}
+            )
+            name = result.pop('strategy_name', strat)
+            result.pop('df', None)
+            all_results[name] = result
+        except Exception as e:
+            print(f"  [ERROR] {strat}: {e}")
+            all_results[strat] = {'metrics': {'error': str(e)}}
 
-        model = train_ppo(
-            model,
-            total_timesteps=args.timesteps,
-            eval_env=test_env, # train_ppo will wrap this if needed, but we already wrapped it in DummyVecEnv
-            eval_freq=args.timesteps // 10
-        )
-        
-        # For final evaluation, we need to ensure test_env is normalized with training stats
-        # train_ppo doesn't return the wrapped eval_env.
-        # We should manually wrap test_env with VecNormalize using stats from model.get_env()
-        
-        if isinstance(train_vec_env, VecNormalize):
-            test_env = VecNormalize(test_env, norm_obs=True, norm_reward=False, training=False)
-            test_env.obs_rms = train_vec_env.obs_rms
-            test_env.ret_rms = train_vec_env.ret_rms
-        
-        # Evaluate
-        metrics = evaluate_agent(model, test_env, n_episodes=5)
-        metrics['fold'] = fold + 1
-        all_metrics.append(metrics)
-        
-        # Save fold model
-        save_ppo_agent(model, f'ppo_fold_{fold+1}')
-    
-    # Print summary
-    print(f"\n{'='*50}")
-    print("WALK-FORWARD VALIDATION SUMMARY")
-    print(f"{'='*50}")
-    
-    import pandas as pd
-    metrics_df = pd.DataFrame(all_metrics)
-    print(metrics_df.to_string())
-    
-    print(f"\nMean Return: {metrics_df['mean_return'].mean()*100:.2f}%")
-    print(f"Mean Win Rate: {metrics_df['win_rate'].mean()*100:.1f}%")
+    from reports.reporter import compare_strategies
+    print("\n" + compare_strategies(all_results))
+
+    # Find winner
+    best_name, best_pf = None, -999
+    for name, res in all_results.items():
+        pf = res.get('avg_profit_factor', res.get('metrics', {}).get('profit_factor', 0))
+        if pf > best_pf:
+            best_pf, best_name = pf, name
+
+    if best_name:
+        print(f"\n  🏆 Best strategy: {best_name} (Profit Factor: {best_pf:.3f})")
 
 
 def cmd_paper(args):
-    """Run paper trading."""
-    import time
-    import numpy as np
-    from src.data.features import load_featured_data, get_feature_columns
-    from src.environment.trading_env import CryptoTradingEnv
-    from src.models.ppo_agent import load_ppo_agent
-    from src.models.bilstm import load_model as load_bilstm, freeze_model
-    from src.execution.paper_trader import PaperTrader
-    
-    print("Starting paper trading...")
-    
-    # Load data
-    df = load_featured_data(symbol=args.symbol, timeframe=args.timeframe)
-    feature_cols = get_feature_columns()
-    feature_cols = [c for c in feature_cols if c in df.columns]
-    
-    # Load models
-    bilstm_model = None
-    if args.use_lstm:
-        try:
-            bilstm_model = load_bilstm('bilstm_best.pt')
-            freeze_model(bilstm_model)
-        except FileNotFoundError:
-            print("No Bi-LSTM found")
-    
-    # Create environment
-    env = CryptoTradingEnv(
-        df, feature_cols,
-        use_lstm_features=args.use_lstm,
-        lstm_model=bilstm_model,
-        flat_penalty=REWARD_FLAT_PENALTY
+    """Paper trading on most recent data."""
+    print("\n📋 PAPER TRADING MODE")
+    print("   Running on latest candles. No real trades executed.\n")
+
+    from data.fetcher import fetch_ohlcv
+    from data.features import add_all_features
+
+    # Use last 30 days for paper trading simulation
+    df = fetch_ohlcv(args.symbol, args.timeframe, days=60, use_cache=False)
+    df = add_all_features(df)
+
+    # Use the last 30 days as "live" paper trading window
+    paper_df = df.iloc[-30 * 24:]
+
+    strategy = _load_strategy(args.strategy, {})
+    signals = strategy.generate_signals(paper_df)
+
+    from backtest.engine import BacktestEngine, BacktestConfig
+    bt_config = BacktestConfig(
+        initial_capital=args.capital,
+        risk_per_trade=0.02,
     )
-    
-    # Load PPO agent with VecNormalize stats
+    engine = BacktestEngine(bt_config)
+    result = engine.run(paper_df, signals)
+
+    from reports.reporter import generate_report
+    report = generate_report(result, strategy.name, args.symbol, args.timeframe,
+                              paper_df, output_dir=Path('reports'))
+    print(report)
+
+    # Show recent signals
+    recent = signals.iloc[-10:]
+    buys = recent[recent['signal'] == 1]
+    sells = recent[recent['signal'] == -1]
+
+    print(f"\n  Recent BUY signals:  {len(buys)} in last 10 candles")
+    print(f"  Recent SELL signals: {len(sells)} in last 10 candles")
+
+    if not buys.empty:
+        last_buy = buys.iloc[-1]
+        print(f"\n  Last BUY signal:")
+        print(f"    Time  : {buys.index[-1]}")
+        print(f"    Price : ${paper_df.loc[buys.index[-1], 'close']:,.2f}")
+        print(f"    SL    : ${last_buy['sl']:,.2f}")
+        print(f"    TP    : ${last_buy['tp']:,.2f}")
+
+
+def _plot_equity(equity_curve: list, df: pd.DataFrame, name: str, symbol: str):
+    """Save a simple equity curve chart."""
     try:
-        model, vec_env = load_ppo_agent(env, args.model_name, bilstm_model)
-    except FileNotFoundError:
-        print(f"Model {args.model_name} not found. Run training first.")
-        return
-    base_env = vec_env.envs[0]
-    
-    # Create paper trader
-    trader = PaperTrader(
-        initial_balance=args.balance,
-        use_testnet=args.testnet,
-        symbol=args.symbol
-    )
-    
-    # Run paper trading
-    obs = vec_env.reset()
-    info = base_env._get_info()
-    done = False
-    step = 0
-    
-    # Initialize LSTM states
-    lstm_states = None
-    episode_starts = np.ones((1,), dtype=bool)
-    
-    print(f"\nRunning paper trading on {len(df)} candles...")
-    
-    while not done:
-        # Get action from model
-        action, lstm_states = model.predict(
-            obs, 
-            state=lstm_states, 
-            episode_start=episode_starts,
-            deterministic=True
-        )
-        episode_starts = np.zeros((1,), dtype=bool)
-        
-        action_scalar = int(action[0] if hasattr(action, '__len__') else action)
-        
-        # Get current state
-        current_price = info['current_price']
-        current_vol = df.iloc[info['step']].get('volatility', 0.02)
-        
-        # Execute through paper trader
-        trader.execute_signal(action_scalar, current_price, current_vol)
-        trader.check_stop_loss(current_price)
-        
-        # Step environment
-        obs, rewards_vec, dones, infos = vec_env.step(action)
-        reward = float(rewards_vec[0])
-        info = infos[0]
-        done = bool(dones[0])
-        
-        step += 1
-        if step % 100 == 0:
-            portfolio_value = trader.get_portfolio_value(current_price)
-            print(f"Step {step}: Portfolio ${portfolio_value:,.2f}")
-    
-    # Print summary
-    trader.print_summary()
-    trader.save_trades()
-    trader.save_metrics()
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [2, 1]})
+        fig.patch.set_facecolor('#0d1117')
+
+        # Equity curve
+        eq = np.array(equity_curve)
+        # Align with df
+        n = min(len(eq), len(df))
+        dates = df.index[:n]
+
+        ax1.set_facecolor('#0d1117')
+        ax1.plot(dates, eq[:n], color='#00ff88', linewidth=1.5, label='Portfolio Value')
+        ax1.axhline(y=eq[0], color='#888', linestyle='--', linewidth=0.8, alpha=0.7, label='Initial Capital')
+        ax1.fill_between(dates, eq[0], eq[:n], where=eq[:n] > eq[0],
+                         alpha=0.2, color='#00ff88', label='Profit Zone')
+        ax1.fill_between(dates, eq[0], eq[:n], where=eq[:n] < eq[0],
+                         alpha=0.2, color='#ff4444', label='Loss Zone')
+        ax1.set_title(f'{name} — {symbol} Equity Curve', color='white', fontsize=14, fontweight='bold')
+        ax1.set_ylabel('Portfolio Value (USD)', color='#aaa')
+        ax1.tick_params(colors='#aaa')
+        ax1.legend(loc='upper left', facecolor='#1a1a2e', labelcolor='white', fontsize=9)
+        ax1.grid(True, alpha=0.15, color='#444')
+        for spine in ax1.spines.values():
+            spine.set_color('#333')
+
+        # Price
+        ax2.set_facecolor('#0d1117')
+        ax2.plot(df.index, df['close'], color='#4488ff', linewidth=0.8)
+        ax2.set_title(f'{symbol} Price', color='white', fontsize=11)
+        ax2.set_ylabel('Price (USD)', color='#aaa')
+        ax2.tick_params(colors='#aaa')
+        ax2.grid(True, alpha=0.15, color='#444')
+        for spine in ax2.spines.values():
+            spine.set_color('#333')
+
+        plt.tight_layout()
+        out = Path('reports') / f"equity_{name}_{symbol.replace('/', '_')}.png"
+        out.parent.mkdir(exist_ok=True)
+        plt.savefig(out, dpi=120, bbox_inches='tight', facecolor='#0d1117')
+        plt.close()
+        print(f"\n[Chart] Equity curve saved to {out}")
+    except Exception as e:
+        print(f"[Chart] Could not save chart: {e}")
 
 
 def main():
+    banner()
     parser = argparse.ArgumentParser(
-        description="Bi-LSTM + PPO Crypto Trading Bot (v2 — Attention Architecture)",
+        description='Crypto Trading Pro — Research-Backed System',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
-    
-    # Fetch command
-    fetch_parser = subparsers.add_parser('fetch', help='Fetch historical data')
-    fetch_parser.add_argument('--symbol', default=SYMBOL, help='Trading pair')
-    fetch_parser.add_argument('--timeframe', default=TIMEFRAME_RAW, help='Timeframe')
-    fetch_parser.add_argument('--days', type=int, default=LOOKBACK_DAYS, help='Days of history')
-    
-    # Process command
-    process_parser = subparsers.add_parser('process', help='Process data')
-    process_parser.add_argument('--symbol', default=SYMBOL, help='Trading pair')
-    process_parser.add_argument('--timeframe', default=TIMEFRAME_TRADE, help='Target timeframe')
-    process_parser.add_argument('--fear-greed', action='store_true', help='Include Fear & Greed')
-    
-    # Pretrain command (enhanced for v2)
-    pretrain_parser = subparsers.add_parser('pretrain', help='Pre-train Bi-LSTM (v2)')
-    pretrain_parser.add_argument('--symbol', default=SYMBOL, help='Trading pair')
-    pretrain_parser.add_argument('--timeframe', default=TIMEFRAME_TRADE, help='Timeframe')
-    pretrain_parser.add_argument('--epochs', type=int, default=100, help='Training epochs (default: 100)')
-    pretrain_parser.add_argument('--batch-size', type=int, default=32, help='Batch size (default: 32)')
-    pretrain_parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate (default: 1e-4)')
-    pretrain_parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
-    pretrain_parser.add_argument('--attention', action='store_true', default=True,
-                                help='Use self-attention (default: True)')
-    pretrain_parser.add_argument('--no-attention', dest='attention', action='store_false',
-                                help='Disable self-attention')
-    pretrain_parser.add_argument('--focal-loss', action='store_true', default=False,
-                                help='Use Focal Loss (default: OFF for balanced classes)')
-    pretrain_parser.add_argument('--no-focal-loss', dest='focal_loss', action='store_false',
-                                help='Use BCE Loss instead of Focal Loss')
-    pretrain_parser.add_argument('--focal-gamma', type=float, default=FOCAL_LOSS_GAMMA,
-                                help=f'Focal Loss gamma (default: {FOCAL_LOSS_GAMMA})')
-    pretrain_parser.add_argument('--label-smoothing', type=float, default=0.05,
-                                help='Label smoothing epsilon (default: 0.05)')
-    pretrain_parser.add_argument('--mixup', action='store_true', default=True,
-                                help='Use Mixup augmentation (default: True)')
-    pretrain_parser.add_argument('--no-mixup', dest='mixup', action='store_false',
-                                help='Disable Mixup augmentation')
-    pretrain_parser.add_argument('--mixup-alpha', type=float, default=0.2,
-                                help='Mixup alpha parameter (default: 0.2)')
-    
-    # Train command
-    train_parser = subparsers.add_parser('train', help='Train PPO agent')
-    train_parser.add_argument('--symbol', default=SYMBOL, help='Trading pair')
-    train_parser.add_argument('--timeframe', default=TIMEFRAME_TRADE, help='Timeframe')
-    # Use a higher default to avoid training starvation with PPO_N_STEPS=4096
-    train_parser.add_argument('--timesteps', type=int, default=500000,
-                              help='Total timesteps per fold (default: 500000)')
-    train_parser.add_argument('--train-days', type=int, default=30, help='Training period (days)')
-    train_parser.add_argument('--test-days', type=int, default=7, help='Test period (days)')
-    train_parser.add_argument('--use-lstm', action='store_true', help='Use pre-trained Bi-LSTM')
-    
-    # Paper trading command
-    paper_parser = subparsers.add_parser('paper', help='Run paper trading')
-    paper_parser.add_argument('--symbol', default=SYMBOL, help='Trading pair')
-    paper_parser.add_argument('--timeframe', default=TIMEFRAME_TRADE, help='Timeframe')
-    paper_parser.add_argument('--model-name', default='ppo_fold_1', help='Model to use')
-    paper_parser.add_argument('--balance', type=float, default=10000, help='Initial balance')
-    paper_parser.add_argument('--testnet', action='store_true', help='Use Binance Testnet')
-    paper_parser.add_argument('--use-lstm', action='store_true', help='Use Bi-LSTM features')
-    
+    parser.add_argument('--symbol',    default='BTC/USDT', help='Trading pair (default: BTC/USDT)')
+    parser.add_argument('--timeframe', default='1h',       help='Timeframe (default: 1h)')
+    parser.add_argument('--days',      type=int, default=365, help='Days of data (default: 365)')
+    parser.add_argument('--capital',   type=float, default=10000, help='Initial capital USD (default: 10000)')
+    parser.add_argument('--strategy',  default='mic',
+                        choices=['mic', 'macd_adx', 'bb_rsi'],
+                        help='Strategy (default: mic)')
+    parser.add_argument('--mode',      default='backtest',
+                        choices=['backtest', 'compare', 'paper'],
+                        help='Run mode (default: backtest)')
+    parser.add_argument('--ml',        action='store_true', help='Enable ML signal filter')
+    parser.add_argument('--walk-forward', action='store_true', help='Use walk-forward validation')
+
     args = parser.parse_args()
-    
-    if args.command is None:
-        parser.print_help()
-        return
-    
-    # Execute command
-    commands = {
-        'fetch': cmd_fetch,
-        'process': cmd_process,
-        'pretrain': cmd_pretrain,
-        'train': cmd_train,
-        'paper': cmd_paper
-    }
-    
-    commands[args.command](args)
+
+    Path('reports').mkdir(exist_ok=True)
+
+    if args.mode == 'backtest':
+        cmd_backtest(args)
+    elif args.mode == 'compare':
+        cmd_compare(args)
+    elif args.mode == 'paper':
+        cmd_paper(args)
 
 
 if __name__ == "__main__":
