@@ -46,8 +46,8 @@ class Trade:
 @dataclass
 class BacktestConfig:
     initial_capital: float = 10_000.0
-    fee_rate: float = 0.001          # 0.1% per side
-    slippage_rate: float = 0.0005    # 0.05%
+    fee_rate: float = 0.0005          # 0.1% per side
+    slippage_rate: float = 0.0002    # 0.05%
     risk_per_trade: float = 0.02     # 2% of capital per trade (Kelly-inspired)
     max_open_trades: int = 1         # Conservative: 1 concurrent
     use_compound: bool = True        # Compound profits
@@ -148,7 +148,7 @@ class BacktestEngine:
                 capital_used = size * entry_price
 
                 # Cap position at 25% of capital
-                max_capital = capital * 0.25
+                max_capital = capital * 0.50
                 if capital_used > max_capital:
                     size = max_capital / entry_price
                     capital_used = max_capital
