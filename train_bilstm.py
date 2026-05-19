@@ -18,6 +18,14 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+# Monkeypatch sys for older Python versions (compatibility with torch._dynamo)
+if not hasattr(sys, 'get_int_max_str_digits'):
+    def get_int_max_str_digits() -> int: return 4300
+    sys.get_int_max_str_digits = get_int_max_str_digits
+if not hasattr(sys, 'set_int_max_str_digits'):
+    def set_int_max_str_digits(maxdigits: int) -> None: pass
+    sys.set_int_max_str_digits = set_int_max_str_digits
+
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
