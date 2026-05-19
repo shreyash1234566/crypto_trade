@@ -1,0 +1,51 @@
+========================================================================
+  CRYPTO TRADING SYSTEM — PERFORMANCE REPORT
+========================================================================
+  Strategy : OptimizedTrend
+  Symbol   : BTC/USDT
+  Timeframe: 1h
+  Period   : 2025-05-27 → 2026-05-19
+  Generated: 2026-05-19 07:46:17
+========================================================================
+
+── PROFIT & LOSS SUMMARY ───────────────────────────────────────────────
+    Initial Capital                     $10,000
+    Final Capital                       $10,796
+  ★ Total Return                        +7.96%
+    Total Fees Paid                     $542.30
+  ★ Net P&L                             $+795.95
+
+── RISK METRICS ────────────────────────────────────────────────────────
+    Sharpe Ratio                        1.342  ✅ Good
+    Calmar Ratio                        1.335
+  ★ Profit Factor                       1.842   ✅ > 1.5
+    Max Drawdown                        5.96%  ✅ < 15%
+    Expectancy                          $13.12 per trade
+
+── TRADE STATISTICS ────────────────────────────────────────────────────
+    Total Trades                        102
+    Win Rate                            42.2%  ⚠️ 
+    Avg Win                             $68.10
+    Avg Loss                            $26.95
+    Win/Loss Ratio                      2.527
+    Avg Trade %                         +0.2538%
+    Avg Duration                        8.8 hours
+
+── EXIT ANALYSIS ───────────────────────────────────────────────────────
+    Take-Profit Exits                   11 (11%)
+    Stop-Loss Exits                     30 (29%)
+    Signal Exits                        61 (60%)
+
+── OVERALL ASSESSMENT ──────────────────────────────────────────────────
+  ❌ Win rate < 50%
+  ✅ Profit factor > 1.5
+  ✅ Sharpe > 1.0
+  ✅ Max drawdown < 20%
+  ✅ Positive ROI
+
+  Overall Score: 4/5 — ✅ GOOD
+
+========================================================================
+  ⚠️  DISCLAIMER: Past performance does not guarantee future results.
+  Always paper-trade first. Never risk money you cannot afford to lose.
+========================================================================
