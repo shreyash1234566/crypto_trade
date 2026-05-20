@@ -1,40 +1,40 @@
 ========================================================================
   CRYPTO TRADING SYSTEM — PERFORMANCE REPORT
 ========================================================================
-  Strategy : ML_BB_RSI_MeanReversion
+  Strategy : BB_RSI_MeanReversion
   Symbol   : BTC/USDT
   Timeframe: 1h
   Period   : 2025-05-27 → 2026-05-19
-  Generated: 2026-05-19 07:31:38
+  Generated: 2026-05-19 23:23:31
 ========================================================================
 
 ── PROFIT & LOSS SUMMARY ───────────────────────────────────────────────
     Initial Capital                     $10,000
-    Final Capital                       $9,890
-    Total Return                        -1.10%
-    Total Fees Paid                     $29.78
-  ★ Net P&L                             $-110.13
+    Final Capital                       $9,668
+    Total Return                        -3.32%
+    Total Fees Paid                     $78.58
+  ★ Net P&L                             $-331.92
 
 ── RISK METRICS ────────────────────────────────────────────────────────
-    Sharpe Ratio                        -1.765  ❌ Negative
-    Calmar Ratio                        -0.892
-    Profit Factor                       0.106   ❌ < 1
-    Max Drawdown                        1.23%  ✅ < 15%
-    Expectancy                          $-13.39 per trade
+    Sharpe Ratio                        -2.215  ❌ Negative
+    Calmar Ratio                        -0.927
+    Profit Factor                       0.069   ❌ < 1
+    Max Drawdown                        3.58%  ✅ < 15%
+    Expectancy                          $-31.67 per trade
 
 ── TRADE STATISTICS ────────────────────────────────────────────────────
-    Total Trades                        6
-    Win Rate                            16.7%  ⚠️ 
-    Avg Win                             $9.57
-    Avg Loss                            $17.98
-    Win/Loss Ratio                      0.532
-    Avg Trade %                         -0.5378%
-    Avg Duration                        1.7 hours
+    Total Trades                        8
+    Win Rate                            12.5%  ⚠️ 
+    Avg Win                             $18.92
+    Avg Loss                            $38.89
+    Win/Loss Ratio                      0.486
+    Avg Trade %                         -0.6423%
+    Avg Duration                        1.5 hours
 
 ── EXIT ANALYSIS ───────────────────────────────────────────────────────
     Take-Profit Exits                   0 (0%)
-    Stop-Loss Exits                     4 (67%)
-    Signal Exits                        2 (33%)
+    Stop-Loss Exits                     6 (75%)
+    Signal Exits                        2 (25%)
 
 ── OVERALL ASSESSMENT ──────────────────────────────────────────────────
   ❌ Win rate < 50%

@@ -59,6 +59,8 @@ class CryptoTradingEnvV3(gym.Env):
         + Regime penalty:    -0.005/step when long in bear market
         + Trailing penalty:  -0.003/step when long but price < EMA21
         + Entry bonus:       +0.003 when entering on perfect setup
+        + Churn penalty:     -0.01 when closing trade held < MIN_HOLD_STEPS
+        + Cooldown:          Agent forced flat for COOLDOWN_STEPS after each close
     """
 
     PROFIT_SCALE    = 1.0
@@ -68,7 +70,10 @@ class CryptoTradingEnvV3(gym.Env):
     REGIME_PENALTY  = -0.005   # per step: long in bear market
     TRAILING_PENALTY= -0.003   # per step: long below EMA21
     ENTRY_BONUS     = 0.003    # one-time: entering on perfect setup
+    CHURN_PENALTY   = -0.01    # closing trade held < MIN_HOLD_STEPS
     MAX_HOLD_STEPS  = 200
+    MIN_HOLD_STEPS  = 12       # must hold at least 12h or get penalized
+    COOLDOWN_STEPS  = 6        # forced flat for 6h after closing a trade
 
     def __init__(
         self,
@@ -131,6 +136,7 @@ class CryptoTradingEnvV3(gym.Env):
         self.entry_step      = 0
         self.prev_unrealized = 0.0
         self.trades          = []
+        self.cooldown_until  = 0          # step when cooldown ends
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -141,12 +147,19 @@ class CryptoTradingEnvV3(gym.Env):
         self.entry_step      = SEQUENCE_LENGTH
         self.prev_unrealized = 0.0
         self.trades          = []
+        self.cooldown_until  = 0          # step when cooldown ends
         return self._get_obs(), self._get_info()
 
     def step(self, action: int):
         price   = float(self.prices[self.current_step])
         reward  = 0.0
         target  = {0: 0, 1: 1, 2: -1}[action]
+
+        # ── Anti-overtrading: enforce cooldown after trade close ──────────
+        in_cooldown = self.current_step < self.cooldown_until
+        if in_cooldown and self.position == 0 and target != 0:
+            # Agent wants to open during cooldown → force flat
+            target = 0
 
         if target == self.position:
             reward = self._hold_reward(price)
@@ -231,14 +244,22 @@ class CryptoTradingEnvV3(gym.Env):
         reward       = self.PROFIT_SCALE * log_return if log_return >= 0 \
                        else self.LOSS_SCALE * log_return
 
+        # ── Anti-overtrading: churn penalty for short-lived trades ────────
+        hold_duration = self.current_step - self.entry_step
+        if hold_duration < self.MIN_HOLD_STEPS and reason != 'stop_loss':
+            reward += self.CHURN_PENALTY  # penalize quick flips
+
         self.trades.append({
             'direction': self.position, 'entry_price': self.entry_price,
             'exit_price': price, 'pnl_pct': pnl_pct,
             'log_return': log_return, 'reason': reason,
+            'hold_duration': hold_duration,
         })
         self.position        = 0
         self.entry_price     = 0.0
         self.prev_unrealized = 0.0
+        # Start cooldown — agent must stay flat for COOLDOWN_STEPS
+        self.cooldown_until  = self.current_step + self.COOLDOWN_STEPS
         return reward
 
     def _hold_reward(self, price: float) -> float:

@@ -38,14 +38,14 @@ VAL_FRAC        = 0.15
 
 
 print("\n" + "="*60)
-print("  STEP 1 — Load data")
+print("  STEP 1 - Load data")
 print("="*60)
 raw = pd.read_csv(DATA_PATH)
 print(f"  {len(raw):,} rows")
 
 
 print("\n" + "="*60)
-print("  STEP 2 — Build features")
+print("  STEP 2 - Build features")
 print("="*60)
 df = build_features(raw)
 feat_cols = [c for c in BILSTM_FEATURES if c in df.columns]
@@ -53,7 +53,7 @@ print(f"  {len(feat_cols)} BiLSTM features  |  {len(PPO_STRATEGY_FEATURES)} PPO 
 
 
 print("\n" + "="*60)
-print("  STEP 3 — Time-ordered split 70/15/15")
+print("  STEP 3 - Time-ordered split 70/15/15")
 print("="*60)
 n         = len(df)
 train_end = int(n * TRAIN_FRAC)
@@ -65,13 +65,13 @@ print(f"  Train: {len(df_train):,}  Val: {len(df_val):,}  Test: {len(df_test):,}
 
 
 print("\n" + "="*60)
-print("  STEP 4 — Load frozen BiLSTM")
+print("  STEP 4 - Load frozen BiLSTM")
 print("="*60)
 try:
     bilstm = load_bilstm('bilstm_best.pt')
     freeze_model(bilstm)
     use_lstm = True
-    print("  BiLSTM loaded and frozen ✓")
+    print("  BiLSTM loaded and frozen [OK]")
 except FileNotFoundError:
     print("  WARNING: bilstm_best.pt not found. Run train_bilstm.py first.")
     print("  Continuing with raw features (no BiLSTM).")
@@ -80,7 +80,7 @@ except FileNotFoundError:
 
 
 print("\n" + "="*60)
-print("  STEP 5 — Create environments")
+print("  STEP 5 - Create environments")
 print("="*60)
 env_kwargs = dict(
     feature_cols      = feat_cols,
@@ -100,7 +100,7 @@ print(f"  Actions: 0=flat  1=long  2=short")
 
 
 print("\n" + "="*60)
-print("  STEP 6 — Create PPO agent")
+print("  STEP 6 - Create PPO agent")
 print("="*60)
 agent = create_ppo_agent_v2(train_env, total_timesteps=TOTAL_TIMESTEPS)
 total_params = sum(p.numel() for p in agent.policy.parameters())
@@ -108,7 +108,7 @@ print(f"  Policy params: {total_params:,}")
 
 
 print("\n" + "="*60)
-print(f"  STEP 7 — Train {TOTAL_TIMESTEPS:,} steps")
+print(f"  STEP 7 - Train {TOTAL_TIMESTEPS:,} steps")
 print("="*60)
 print("  TensorBoard: tensorboard --logdir models_saved/tensorboard_v2\n")
 
@@ -123,7 +123,7 @@ agent = train_ppo_v2(
 
 
 print("\n" + "="*60)
-print("  STEP 8 — Test set evaluation")
+print("  STEP 8 - Test set evaluation")
 print("="*60)
 test_mon     = Monitor(test_env)
 test_vec     = DummyVecEnv([lambda: test_mon])
@@ -140,7 +140,7 @@ print(f"  Sharpe:   {metrics['sharpe_approx']:.3f}")
 
 
 print("\n" + "="*60)
-print("  STEP 9 — Save")
+print("  STEP 9 - Save")
 print("="*60)
 save_agent_v2(agent, name='ppo_v3_trained')
 print("\n  Files saved:")

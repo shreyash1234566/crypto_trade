@@ -170,11 +170,13 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['volatility_norm']   = _norm(df['log_return'].rolling(20).std(), w)
 
     # ── Target for BiLSTM ─────────────────────────────────────────────────────
-    # Strategy-aware: identify the EXACT setup from optimized_trend.py
-    # Not lookahead — uses only current candle data
+    # Target: meaningful price move (1.5% in 12 candles) in bull regime
+    # Old target (0.3% in 3 candles) was noise — BTC moves that much randomly
+    forward_return = df['close'].shift(-12) / df['close'] - 1
     df['target'] = (
-        (df['ema8_21_cross'] == 1) &
-        (df['price_above_200'] == 1)
+        (forward_return > 0.015) &               # 1.5% upside (was 0.3% — too noisy)
+        (df['price_above_200'] == 1) &            # bull regime
+        (df['rsi'] < 70)                          # not already overbought
     ).astype(float)
 
     df = df.dropna().reset_index(drop=True)

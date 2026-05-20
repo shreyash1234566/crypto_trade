@@ -50,7 +50,8 @@ def banner():
 
 def run_backtest(symbol: str, timeframe: str, days: int,
                  strategy_name: str, use_ml: bool,
-                 walk_forward: bool, config: dict) -> dict:
+                 walk_forward: bool, config: dict,
+                 precision_floor: float = 0.80, weight_scale: float = 1.0) -> dict:
     """Run a full backtest and return results."""
     from data.fetcher import fetch_ohlcv
     from data.features import add_all_features
@@ -72,8 +73,9 @@ def run_backtest(symbol: str, timeframe: str, days: int,
 
     if use_ml:
         from models.ml_enhancer import MLSignalEnhancer
-        strategy = MLSignalEnhancer(strategy)
-        print(f"      → ML enhancement enabled (LogisticRegression rolling filter)")
+        ml_config = {'precision_floor': precision_floor, 'weight_scale': weight_scale}
+        strategy = MLSignalEnhancer(strategy, config=ml_config)
+        print(f"      → ML enhancement enabled (LogisticRegression rolling filter, precision floor={precision_floor}, weight scale={weight_scale})")
 
     # ── Backtest ───────────────────────────────────────────────────────
     bt_config = BacktestConfig(
@@ -127,7 +129,9 @@ def cmd_backtest(args):
         strategy_name=args.strategy,
         use_ml=args.ml,
         walk_forward=args.walk_forward,
-        config={'capital': args.capital}
+        config={'capital': args.capital},
+        precision_floor=args.precision_floor,
+        weight_scale=args.weight_scale,
     )
 
     from reports.reporter import generate_report
@@ -301,6 +305,8 @@ def main():
                         choices=['backtest', 'compare', 'paper'],
                         help='Run mode (default: backtest)')
     parser.add_argument('--ml',        action='store_true', help='Enable ML signal filter')
+    parser.add_argument('--precision-floor', type=float, default=0.80, help='Target minimum precision for ML filter')
+    parser.add_argument('--weight-scale', type=float, default=1.0, help='Scale for positive class weight in ML filter')
     parser.add_argument('--walk-forward', action='store_true', help='Use walk-forward validation')
 
     args = parser.parse_args()

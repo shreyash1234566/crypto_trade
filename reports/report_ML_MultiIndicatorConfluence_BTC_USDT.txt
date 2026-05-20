@@ -1,0 +1,66 @@
+========================================================================
+  CRYPTO TRADING SYSTEM — PERFORMANCE REPORT
+========================================================================
+  Strategy : ML_MultiIndicatorConfluence
+  Symbol   : BTC/USDT
+  Timeframe: 1h
+  Period   : 2025-05-27 → 2026-05-19
+  Generated: 2026-05-19 23:20:12
+========================================================================
+
+── PROFIT & LOSS SUMMARY ───────────────────────────────────────────────
+    Initial Capital                     $10,000
+    Final Capital                       $0
+    Total Return                        +0.00%
+    Total Fees Paid                     $0.00
+  ★ Net P&L                             $+0.00
+
+── RISK METRICS ────────────────────────────────────────────────────────
+    Sharpe Ratio                        0.000  ❌ Negative
+    Calmar Ratio                        0.000
+    Profit Factor                       0.000   ❌ < 1
+    Max Drawdown                        0.00%  ✅ < 15%
+    Expectancy                          $0.00 per trade
+
+── TRADE STATISTICS ────────────────────────────────────────────────────
+    Total Trades                        5
+    Win Rate                            0.0%  ⚠️ 
+    Avg Win                             $0.00
+    Avg Loss                            $0.00
+    Win/Loss Ratio                      0.000
+    Avg Trade %                         +0.0000%
+    Avg Duration                        0.0 hours
+
+── EXIT ANALYSIS ───────────────────────────────────────────────────────
+    Take-Profit Exits                   0 (0%)
+    Stop-Loss Exits                     0 (0%)
+    Signal Exits                        0 (0%)
+
+── WALK-FORWARD VALIDATION ─────────────────────────────────────────────
+    Number of Folds                     46
+    Avg Win Rate                        12.5%
+    Avg Profit Factor                   0.422
+    Avg Sharpe                          -7.326
+    Avg Max Drawdown                    0.72%
+
+  Fold-by-Fold Results:
+  Fold  Trades  WinRate      PF   Return%   Sharpe   MaxDD%
+  ────  ──────  ───────  ──────  ────────  ───────  ───────
+     3       1     0.0%   0.000     -0.57%  -10.202    0.57%
+    15       2    50.0%   1.688     +0.12%    1.128    0.56%
+    17       1     0.0%   0.000     -0.85%  -11.421    0.85%
+    38       1     0.0%   0.000     -0.87%   -8.809    0.88%
+
+── OVERALL ASSESSMENT ──────────────────────────────────────────────────
+  ❌ Win rate < 50%
+  ❌ Profit factor < 1
+  ❌ Negative Sharpe
+  ✅ Max drawdown < 20%
+  ❌ Negative ROI
+
+  Overall Score: 1/5 — ❌ POOR
+
+========================================================================
+  ⚠️  DISCLAIMER: Past performance does not guarantee future results.
+  Always paper-trade first. Never risk money you cannot afford to lose.
+========================================================================

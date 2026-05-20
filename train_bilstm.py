@@ -18,6 +18,16 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train BiLSTM with optional positive class weight scaling.")
+    parser.add_argument("--weight-scale", type=float, default=1.0,
+                        help="Scale factor for the positive class weight (default 1.0). Use <1.0 to reduce bias toward positives.")
+    return parser.parse_args()
+
+args = parse_args()
+
 # Monkeypatch sys for older Python versions (compatibility with torch._dynamo)
 if not hasattr(sys, 'get_int_max_str_digits'):
     def get_int_max_str_digits() -> int: return 4300
@@ -42,7 +52,7 @@ DATA_PATH  = ROOT / 'btc_usdt_1h.csv'
 BATCH_SIZE = 64
 EPOCHS     = 100
 LR         = 1e-4
-PATIENCE   = 15
+PATIENCE   = EPOCHS + 1  # Disable early stopping so all epochs run
 TRAIN_FRAC = 0.80
 
 
@@ -90,7 +100,7 @@ print(f"  Train batches: {len(train_loader)}   Val batches: {len(val_loader)}")
 print("\n" + "="*55)
 print("  STEP 4 — Build BiLSTM model")
 print("="*55)
-model    = BiLSTMFeatureExtractor(input_size=len(feat_cols), use_attention=True)
+model    = BiLSTMFeatureExtractor(input_size=len(feat_cols), use_attention=True, dropout=0.35)
 n_params = sum(p.numel() for p in model.parameters())
 print(f"  Input size:  {len(feat_cols)} features")
 print(f"  Output size: 64-dim state vector")
@@ -101,7 +111,7 @@ dummy = torch.randn(4, SEQUENCE_LENGTH, len(feat_cols))
 with torch.no_grad():
     s = model(dummy, return_state=True)
     p = model(dummy, return_state=False)
-print(f"  State shape: {s.shape}  Pred shape: {p.shape}  ✓")
+print(f"  State shape: {s.shape}  Pred shape: {p.shape}  [OK]")
 
 
 print("\n" + "="*55)
@@ -113,8 +123,10 @@ pos_rate = y_tr.mean()
 neg_rate = 1 - pos_rate
 w_pos = neg_rate / (2 * pos_rate + 1e-8)    # oversample minority
 w_neg = pos_rate / (2 * neg_rate + 1e-8)
+# Apply user-scaled positive class weight
+w_pos = w_pos * args.weight_scale
 class_weights = torch.FloatTensor([w_neg, w_pos])
-print(f"  Entry rate: {pos_rate:.2%}  Weight pos: {w_pos:.2f}  Weight neg: {w_neg:.2f}")
+print(f"  Entry rate: {pos_rate:.2%}  Weight pos: {w_pos:.2f} (scaled by {args.weight_scale:.1f})  Weight neg: {w_neg:.2f}")
 
 
 print("\n" + "="*55)
@@ -130,9 +142,10 @@ history = train_bilstm(
     learning_rate  = LR,
     patience       = PATIENCE,
     class_weights  = class_weights,
-    use_focal_loss = True,     # Focal loss handles the class imbalance better
-    label_smoothing= 0.05,
-    use_mixup      = True,
+    use_focal_loss = True,     # Focal Loss handles imbalance better than weighted BCE
+    focal_gamma    = 2.0,      # Focus on hard examples
+    label_smoothing= 0.0,
+    use_mixup      = False,
     mixup_alpha    = 0.2,
 )
 
@@ -145,3 +158,6 @@ import os
 print(f"  ✓ models_saved/bilstm_best.pt  ({os.path.getsize(best_pt)//1024} KB)")
 print(f"  Best val accuracy: {max(history['val_acc']):.4f}")
 print(f"\n  Done. Now run: python train_v2.py")
+print(f"\nTo reduce bias toward positive class (fewer false positives), try:")
+print(f"  --weight-scale 0.5   # Halve positive class weight")
+print(f"  --weight-scale 0.25  # Quarter positive class weight")

@@ -23,6 +23,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import pandas as pd
+from sklearn.metrics import average_precision_score, confusion_matrix
 from pathlib import Path
 from tqdm import tqdm
 import sys
@@ -392,7 +393,7 @@ def train_bilstm(
     # Loss function selection
     if use_focal_loss:
         criterion = FocalLoss(gamma=focal_gamma, alpha=0.25)
-        print(f"Using Focal Loss (γ={focal_gamma}, α=0.25)")
+        print(f"Using Focal Loss (gamma={focal_gamma}, alpha=0.25)")
     else:
         criterion = None  # will use BCE with optional class weights
     
@@ -401,8 +402,8 @@ def train_bilstm(
         cw = class_weights.to(DEVICE)
         print(f"Using class-weighted BCE: {cw.cpu().numpy()}")
     
-    print(f"Label smoothing: ε={label_smoothing}")
-    print(f"Mixup augmentation: {'ON (α=' + str(mixup_alpha) + ')' if use_mixup else 'OFF'}")
+    print(f"Label smoothing: epsilon={label_smoothing}")
+    print(f"Mixup augmentation: {'ON (alpha=' + str(mixup_alpha) + ')' if use_mixup else 'OFF'}")
     
     history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
     best_val_loss = float('inf')
@@ -452,6 +453,8 @@ def train_bilstm(
         val_losses = []
         correct = 0
         total = 0
+        val_preds = []
+        val_targets = []
 
         with torch.no_grad():
             for x, y in val_loader:
@@ -470,6 +473,10 @@ def train_bilstm(
 
                 val_losses.append(loss.item())
 
+                # Collect predictions/targets for imbalanced metrics
+                val_preds.append(pred.detach().cpu().numpy())
+                val_targets.append(y.detach().cpu().numpy())
+
                 # Accuracy
                 predicted = (pred > 0.5).float()
                 correct += (predicted == y).sum().item()
@@ -477,6 +484,43 @@ def train_bilstm(
 
         avg_val_loss = np.mean(val_losses) if val_losses else float('inf')
         val_acc = correct / total if total > 0 else 0.0
+
+        # Imbalance-aware metrics
+        if val_preds and val_targets:
+            y_true = np.concatenate(val_targets).astype(np.float32)
+            y_prob = np.concatenate(val_preds).astype(np.float32)
+
+            thresholds = [0.05, 0.10, 0.20, 0.30, 0.50]
+            best_f1 = -1.0
+            best_thr = 0.50
+            best_stats = (0.0, 0.0, 0.0)
+            best_cm = np.array([[0, 0], [0, 0]])
+
+            for thr in thresholds:
+                y_hat = (y_prob > thr).astype(np.float32)
+                tp = float(((y_hat == 1) & (y_true == 1)).sum())
+                fp = float(((y_hat == 1) & (y_true == 0)).sum())
+                fn = float(((y_hat == 0) & (y_true == 1)).sum())
+
+                precision = tp / (tp + fp + 1e-8)
+                recall = tp / (tp + fn + 1e-8)
+                f1 = 2 * precision * recall / (precision + recall + 1e-8)
+
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_thr = thr
+                    best_stats = (precision, recall, f1)
+                    best_cm = confusion_matrix(y_true, y_hat, labels=[0.0, 1.0])
+
+            precision, recall, f1 = best_stats
+            pr_auc = average_precision_score(y_true, y_prob)
+            cm = best_cm
+            baseline_acc = 1.0 - float(y_true.mean())
+        else:
+            precision = recall = f1 = pr_auc = 0.0
+            best_thr = 0.50
+            cm = np.array([[0, 0], [0, 0]])
+            baseline_acc = 0.0
 
         # Update scheduler
         scheduler.step(avg_val_loss)
@@ -490,6 +534,14 @@ def train_bilstm(
         print(f"Epoch {epoch+1}: Train Loss={avg_train_loss:.4f}, "
               f"Val Loss={avg_val_loss:.4f}, Val Acc={val_acc:.4f}, "
               f"LR={current_lr:.2e}")
+        print(
+            f"  BestThr={best_thr:.2f}  Pos P/R/F1={precision:.4f}/{recall:.4f}/{f1:.4f}  "
+            f"PR-AUC={pr_auc:.4f}  Baseline Acc={baseline_acc:.4f}"
+        )
+        print(
+            f"  Confusion Matrix [[TN, FP], [FN, TP]] = "
+            f"[[{cm[0,0]}, {cm[0,1]}], [{cm[1,0]}, {cm[1,1]}]]"
+        )
         
         # Track best accuracy for reporting
         if val_acc > best_val_acc:
@@ -507,7 +559,7 @@ def train_bilstm(
                 print(f"Early stopping at epoch {epoch+1}")
                 break
     
-    print(f"\n🏆 Best validation accuracy: {best_val_acc:.4f}")
+    print(f"\n[BEST] Best validation accuracy: {best_val_acc:.4f}")
     return history
 
 

@@ -137,7 +137,7 @@ def generate_report(results: dict, strategy_name: str, symbol: str,
 
     if output_dir:
         out_file = output_dir / f"report_{strategy_name}_{symbol.replace('/', '_')}.txt"
-        out_file.write_text(report)
+        out_file.write_text(report, encoding='utf-8')
         print(f"[Report] Saved to {out_file}")
 
     return report

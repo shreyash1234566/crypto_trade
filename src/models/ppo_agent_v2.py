@@ -405,13 +405,13 @@ def train_ppo_v2(
     # ── save final model + VecNormalize stats ─────────────────────────────────
     final_model_path = Path(save_path) / 'ppo_v2_final'
     model.save(str(final_model_path))
-    print(f"Model saved → {final_model_path}.zip")
+    print(f"Model saved -> {final_model_path}.zip")
 
     vec_env = model.get_env()
     if isinstance(vec_env, VecNormalize):
         vecnorm_path = Path(save_path) / 'vecnorm_v2.pkl'
         vec_env.save(str(vecnorm_path))
-        print(f"VecNormalize stats → {vecnorm_path}")
+        print(f"VecNormalize stats -> {vecnorm_path}")
 
     return model
 
@@ -424,13 +424,13 @@ def save_agent_v2(model: PPO, name: str = 'ppo_v2'):
     """Save model weights and VecNormalize stats."""
     model_path = MODELS_DIR / name
     model.save(str(model_path))
-    print(f"Agent saved → {model_path}.zip")
+    print(f"Agent saved -> {model_path}.zip")
 
     vec_env = model.get_env()
     if isinstance(vec_env, VecNormalize):
         vn_path = MODELS_DIR / f'vecnorm_{name}.pkl'
         vec_env.save(str(vn_path))
-        print(f"VecNormalize → {vn_path}")
+        print(f"VecNormalize -> {vn_path}")
 
 
 def load_agent_v2(
@@ -456,7 +456,7 @@ def load_agent_v2(
         vec_env          = VecNormalize.load(str(vn_path), env)
         vec_env.training = False
         vec_env.norm_reward = False
-        print(f"VecNormalize loaded ← {vn_path}")
+        print(f"VecNormalize loaded <- {vn_path}")
     else:
         print(f"WARNING: VecNormalize stats not found at {vn_path}.")
         print("The agent will see un-normalised observations — predictions unreliable.")
@@ -478,7 +478,7 @@ def load_agent_v2(
         custom_objects = custom_objects,
         device         = DEVICE_PPO,
     )
-    print(f"Agent loaded ← {model_path}")
+    print(f"Agent loaded <- {model_path}")
     return model, vec_env
 
 
@@ -539,13 +539,13 @@ def evaluate_agent_v2(
     }
 
     if verbose:
-        print("\n── Evaluation Results ──────────────────────────────────────")
+        print("\n-- Evaluation Results ------------------------------------------")
         print(f"  Mean Return  : {metrics['mean_return']*100:+.2f}%")
         print(f"  Std Return   : {metrics['std_return']*100:.2f}%")
         print(f"  Win Rate     : {metrics['win_rate']*100:.1f}%")
         print(f"  Mean Trades  : {metrics['mean_trades']:.1f}")
         print(f"  Sharpe (est) : {metrics['sharpe_approx']:.3f}")
-        print("────────────────────────────────────────────────────────────")
+        print("------------------------------------------------------------")
 
     return metrics
 
