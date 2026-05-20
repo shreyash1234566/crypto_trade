@@ -184,8 +184,18 @@ class TradeMetricsCallback(BaseCallback):
         super().__init__(verbose)
         self._ep_returns  = []
         self._ep_trades   = []
+        self._action_counts = np.zeros(3, dtype=np.int64)
+        self._step_count = 0
 
     def _on_step(self) -> bool:
+        actions = self.locals.get('actions')
+        if actions is not None:
+            act = np.asarray(actions).reshape(-1)
+            for a in act:
+                if 0 <= int(a) <= 2:
+                    self._action_counts[int(a)] += 1
+            self._step_count += len(act)
+
         # SB3 fills ep_info_buffer when an episode finishes
         for info in self.locals.get('infos', []):
             if 'total_return' in info:
@@ -194,6 +204,16 @@ class TradeMetricsCallback(BaseCallback):
             if 'n_trades' in info:
                 self._ep_trades.append(info['n_trades'])
                 self.logger.record('trade/n_trades', info['n_trades'])
+            if 'avg_hold' in info:
+                self.logger.record('trade/avg_hold', info['avg_hold'])
+            if 'steps_in_pos' in info:
+                self.logger.record('trade/steps_in_pos', info['steps_in_pos'])
+
+        if self._step_count > 0:
+            total = float(self._step_count)
+            self.logger.record('action/flat', self._action_counts[0] / total)
+            self.logger.record('action/long', self._action_counts[1] / total)
+            self.logger.record('action/short', self._action_counts[2] / total)
 
         return True
 
@@ -205,13 +225,13 @@ class EntropyScheduleCallback(BaseCallback):
     WHY: High entropy early forces the agent to explore many actions.
     As training progresses and the agent finds good policies, we want
     it to EXPLOIT those policies, not keep exploring randomly.
-    Entropy schedule: 0.02 → 0.002 over 500k steps.
+    Entropy schedule: 0.02 → 0.005 over 500k steps.
 
     Note: SB3 supports callable schedules for learning_rate but not
     for ent_coef. We implement it manually via this callback.
     """
 
-    def __init__(self, ent_start: float = 0.02, ent_end: float = 0.002,
+    def __init__(self, ent_start: float = 0.02, ent_end: float = 0.005,
                  total_timesteps: int = 500_000, verbose=0):
         super().__init__(verbose)
         self.ent_start       = ent_start
