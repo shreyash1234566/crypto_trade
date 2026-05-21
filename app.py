@@ -41,7 +41,47 @@ from config.settings import SEQUENCE_LENGTH, STATE_DIM, MODELS_DIR, SYMBOL
 from src.models.bilstm import load_model as load_bilstm, freeze_model
 from src.data.features_v3 import build_features_v3, BILSTM_FEATURES, PPO_STRATEGY_FEATURES_V4
 from src.environment.trading_env_v4 import CryptoTradingEnvV4
-from src.models.ppo_agent_v2 import load_agent_v2
+from src.models.ppo_agent_v2 import PassthroughExtractor, NET_ARCH
+
+import torch.nn as nn
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.monitor import Monitor
+
+# ---------------------------------------------------------------------------
+# PRE-LOAD MODELS IN MAIN THREAD (Fixes Python 3.13 Threading Segfaults)
+# ---------------------------------------------------------------------------
+print("Pre-loading neural networks in main thread...")
+GLOBAL_BILSTM = None
+USE_LSTM = False
+try:
+    GLOBAL_BILSTM = load_bilstm('bilstm_best.pt')
+    freeze_model(GLOBAL_BILSTM)
+    USE_LSTM = True
+    print("BiLSTM loaded globally.")
+except FileNotFoundError:
+    print("BiLSTM not found.")
+
+custom_objects = {
+    'policy_kwargs': dict(
+        features_extractor_class  = PassthroughExtractor,
+        features_extractor_kwargs = {},
+        net_arch                  = NET_ARCH,
+        activation_fn             = nn.Tanh,
+        ortho_init                = True,
+    )
+}
+
+try:
+    GLOBAL_MODEL = PPO.load(
+        str(MODELS_DIR / 'ppo_v4_final.zip'),
+        custom_objects=custom_objects,
+        device="cpu"
+    )
+    print("PPO Model loaded globally.")
+except Exception as e:
+    print(f"Failed to pre-load PPO model: {e}")
+    GLOBAL_MODEL = None
 
 # ---------------------------------------------------------------------------
 # Global state shared between the trading thread and the Gradio UI
@@ -160,20 +200,16 @@ def trading_loop():
             # Check model files
             model_path = MODELS_DIR / 'ppo_v4_final.zip'
             vecnorm_path = MODELS_DIR / 'vecnorm_ppo_v4_final.pkl'
-            if not model_path.exists() or not vecnorm_path.exists():
+            if GLOBAL_MODEL is None or not vecnorm_path.exists():
                 with LOCK:
                     STATE.status = "ERROR - Model files not found"
                     STATE.error = f"Missing: {model_path.name} or {vecnorm_path.name}"
-                return
+                time.sleep(60)
+                continue
 
-            # Load BiLSTM
-            try:
-                bilstm = load_bilstm('bilstm_best.pt')
-                freeze_model(bilstm)
-                use_lstm = True
-            except FileNotFoundError:
-                bilstm = None
-                use_lstm = False
+            # Use globally loaded BiLSTM
+            bilstm = GLOBAL_BILSTM
+            use_lstm = USE_LSTM
 
             with LOCK:
                 STATE.status = "Fetching warm-up candles..."
@@ -200,9 +236,17 @@ def trading_loop():
             env = CryptoTradingEnvV4(df, **env_kwargs)
 
             with LOCK:
-                STATE.status = "Loading PPO model..."
+                STATE.status = "Attaching Environment..."
 
-            model, vec_env = load_agent_v2(env, name='ppo_v4_final')
+            env = Monitor(env)
+            venv = DummyVecEnv([lambda: env])
+            vec_env = VecNormalize.load(str(vecnorm_path), venv)
+            vec_env.training = False
+            vec_env.norm_reward = False
+
+            # Attach environment to globally loaded PPO model
+            GLOBAL_MODEL.set_env(vec_env)
+            model = GLOBAL_MODEL
 
             with LOCK:
                 STATE.status = "Warming up model (processing history)..."
@@ -279,7 +323,14 @@ def trading_loop():
 
                     df = build_features_v3(raw_df.copy())
                     env = CryptoTradingEnvV4(df, **env_kwargs)
-                    model, vec_env = load_agent_v2(env, name='ppo_v4_final')
+                    env = Monitor(env)
+                    venv = DummyVecEnv([lambda: env])
+                    vec_env = VecNormalize.load(str(vecnorm_path), venv)
+                    vec_env.training = False
+                    vec_env.norm_reward = False
+                    
+                    GLOBAL_MODEL.set_env(vec_env)
+                    model = GLOBAL_MODEL
 
                     obs = vec_env.reset()
                     n_ff = len(df) - SEQUENCE_LENGTH - 1
