@@ -25,12 +25,23 @@ from plotly.subplots import make_subplots
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
+import torch
+
+# Fix for PyTorch Linux Segfaults in background threads
+torch.set_num_threads(1)
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 LOG_DIR = ROOT / 'logs'
 LOG_DIR.mkdir(exist_ok=True)
+
+# Import ML modules in main thread to avoid Linux Segfaults (Exit Code 139)
+from config.settings import SEQUENCE_LENGTH, STATE_DIM, MODELS_DIR, SYMBOL
+from src.models.bilstm import load_model as load_bilstm, freeze_model
+from src.data.features_v3 import build_features_v3, BILSTM_FEATURES, PPO_STRATEGY_FEATURES_V4
+from src.environment.trading_env_v4 import CryptoTradingEnvV4
+from src.models.ppo_agent_v2 import load_agent_v2
 
 # ---------------------------------------------------------------------------
 # Global state shared between the trading thread and the Gradio UI
@@ -143,13 +154,6 @@ def trading_loop():
         with LOCK:
             STATE.price = price
             STATE.status = "Loading model..."
-
-        # Import ML modules (heavy imports)
-        from config.settings import SEQUENCE_LENGTH, STATE_DIM, MODELS_DIR, SYMBOL
-        from src.models.bilstm import load_model as load_bilstm, freeze_model
-        from src.data.features_v3 import build_features_v3, BILSTM_FEATURES, PPO_STRATEGY_FEATURES_V4
-        from src.environment.trading_env_v4 import CryptoTradingEnvV4
-        from src.models.ppo_agent_v2 import load_agent_v2
 
         # Check model files
         model_path = MODELS_DIR / 'ppo_v4_final.zip'
