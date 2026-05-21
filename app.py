@@ -391,7 +391,6 @@ footer { display: none !important; }
 THEME = gr.themes.Base(
     primary_hue="blue",
     neutral_hue="slate",
-    font=gr.themes.GoogleFont("Inter"),
 )
 
 
