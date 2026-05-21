@@ -62,8 +62,8 @@ LOCK = threading.Lock()
 # Binance connection
 # ---------------------------------------------------------------------------
 def connect_binance():
-    """Connect to Binance (Vision API first, then standard)."""
-    # Vision API (geo-unrestricted)
+    """Connect to Binance (Vision API first, then standard, then US, then KuCoin)."""
+    # 1. Vision API (geo-unrestricted, but sometimes still blocked)
     try:
         ex = ccxt.binance({'enableRateLimit': True, 'options': {'defaultType': 'spot'}})
         ex.urls['api']['public'] = 'https://data-api.binance.vision/api/v3'
@@ -71,9 +71,26 @@ def connect_binance():
         return ex, t['last']
     except Exception:
         pass
-    # Standard API
+        
+    # 2. Standard API
     try:
         ex = ccxt.binance({'enableRateLimit': True, 'options': {'defaultType': 'spot'}})
+        t = ex.fetch_ticker('BTC/USDT')
+        return ex, t['last']
+    except Exception:
+        pass
+        
+    # 3. Binance US (Works in US regions like Hugging Face AWS)
+    try:
+        ex = ccxt.binanceus({'enableRateLimit': True, 'options': {'defaultType': 'spot'}})
+        t = ex.fetch_ticker('BTC/USDT')
+        return ex, t['last']
+    except Exception:
+        pass
+        
+    # 4. KuCoin (Universal fallback for BTC/USDT if Binance is totally blocked)
+    try:
+        ex = ccxt.kucoin({'enableRateLimit': True})
         t = ex.fetch_ticker('BTC/USDT')
         return ex, t['last']
     except Exception as e:
