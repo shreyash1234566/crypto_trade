@@ -599,7 +599,7 @@ def make_performance_chart():
 # Gradio App
 # ---------------------------------------------------------------------------
 def build_app():
-    with gr.Blocks(title="PPO v4 Crypto Trader") as app:
+    with gr.Blocks(title="PPO v4 Crypto Trader", theme=THEME, css=CSS) as app:
         gr.Markdown("""
         # <center>PPO v4 Live Crypto Trader</center>
         <center style="color: #8b949e; font-size: 14px;">
@@ -668,8 +668,6 @@ if __name__ == '__main__':
         server_port=7860,
         share=False,
         show_error=True,
-        theme=THEME,
-        css=CSS,
     )
 
 
