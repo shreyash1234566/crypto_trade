@@ -138,206 +138,209 @@ def fetch_candles(exchange, symbol='BTC/USDT', timeframe='1h', limit=500):
 # Live trading thread
 # ---------------------------------------------------------------------------
 def trading_loop():
-    """Background thread that runs the PPO model live."""
+    """Background thread that runs the PPO model live with robust restart logic."""
     global STATE
-    try:
-        with LOCK:
-            STATE.status = "Connecting to Binance..."
-
-        exchange, price = connect_binance()
-        if exchange is None:
-            with LOCK:
-                STATE.status = "OFFLINE - Cannot connect to Binance"
-                STATE.error = "Failed to connect to Binance API"
-            return
-
-        with LOCK:
-            STATE.price = price
-            STATE.status = "Loading model..."
-
-        # Check model files
-        model_path = MODELS_DIR / 'ppo_v4_final.zip'
-        vecnorm_path = MODELS_DIR / 'vecnorm_ppo_v4_final.pkl'
-        if not model_path.exists() or not vecnorm_path.exists():
-            with LOCK:
-                STATE.status = "ERROR - Model files not found"
-                STATE.error = f"Missing: {model_path.name} or {vecnorm_path.name}"
-            return
-
-        # Load BiLSTM
+    while True:
         try:
-            bilstm = load_bilstm('bilstm_best.pt')
-            freeze_model(bilstm)
-            use_lstm = True
-        except FileNotFoundError:
-            bilstm = None
-            use_lstm = False
+            with LOCK:
+                STATE.status = "Connecting to Exchange..."
 
-        with LOCK:
-            STATE.status = "Fetching warm-up candles..."
-
-        # Fetch warm-up data
-        raw_df = fetch_candles(exchange, SYMBOL, '1h', 500)
-        raw_df = raw_df.reset_index()
-        raw_df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        last_candle_ts = raw_df['timestamp'].iloc[-1]
-
-        with LOCK:
-            STATE.status = "Building features..."
-
-        df = build_features_v3(raw_df.copy())
-        feat_cols = [c for c in BILSTM_FEATURES if c in df.columns]
-
-        env_kwargs = dict(
-            feature_cols=feat_cols,
-            initial_balance=10_000.0,
-            transaction_fee=0.001,
-            use_lstm_features=use_lstm,
-            lstm_model=bilstm,
-        )
-        env = CryptoTradingEnvV4(df, **env_kwargs)
-
-        with LOCK:
-            STATE.status = "Loading PPO model..."
-
-        model, vec_env = load_agent_v2(env, name='ppo_v4_final')
-
-        with LOCK:
-            STATE.status = "Warming up model (processing history)..."
-
-        # Fast-forward warm-up
-        obs = vec_env.reset()
-        warmup_steps = len(df) - SEQUENCE_LENGTH - 2
-        action_names = {0: 'FLAT', 1: 'LONG', 2: 'SHORT'}
-
-        for i in range(warmup_steps):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, info = vec_env.step(action)
-            if isinstance(done, np.ndarray):
-                done = done[0]
-            if done:
-                break
-            if (i + 1) % 50 == 0:
-                pct = (i + 1) / warmup_steps * 100
+            exchange, price = connect_binance()
+            if exchange is None:
                 with LOCK:
-                    STATE.status = f"Warming up... {pct:.0f}%"
+                    STATE.status = "OFFLINE - Cannot connect to any Exchange"
+                    STATE.error = "All API fallbacks failed. Retrying in 60s..."
+                time.sleep(60)
+                continue
 
-        if isinstance(info, (list, tuple)):
-            info = info[0]
+            with LOCK:
+                STATE.price = price
+                STATE.status = "Loading model..."
 
-        with LOCK:
-            STATE.warmup_done = True
-            STATE.balance = info.get('balance', 10_000.0)
-            STATE.n_trades = info.get('n_trades', 0)
-            STATE.position = info.get('position', 0)
-            STATE.total_return = info.get('total_return', 0.0) * 100
-            STATE.price = float(df['close'].iloc[-1])
-            STATE.status = "LIVE - Waiting for next candle..."
+            # Check model files
+            model_path = MODELS_DIR / 'ppo_v4_final.zip'
+            vecnorm_path = MODELS_DIR / 'vecnorm_ppo_v4_final.pkl'
+            if not model_path.exists() or not vecnorm_path.exists():
+                with LOCK:
+                    STATE.status = "ERROR - Model files not found"
+                    STATE.error = f"Missing: {model_path.name} or {vecnorm_path.name}"
+                return
 
-        # ---- LIVE LOOP ----
-        while True:
+            # Load BiLSTM
             try:
-                candles = exchange.fetch_ohlcv(SYMBOL, '1h', limit=2)
-                if len(candles) < 2:
-                    time.sleep(30)
-                    continue
-                last_closed = candles[-2]
-                new_ts = pd.Timestamp(last_closed[0], unit='ms')
-                cur_price = candles[-1][4]  # current candle close
+                bilstm = load_bilstm('bilstm_best.pt')
+                freeze_model(bilstm)
+                use_lstm = True
+            except FileNotFoundError:
+                bilstm = None
+                use_lstm = False
 
-                with LOCK:
-                    STATE.price = cur_price
+            with LOCK:
+                STATE.status = "Fetching warm-up candles..."
 
-                if new_ts <= last_candle_ts:
-                    next_hr = last_candle_ts + pd.Timedelta(hours=1)
-                    try:
-                        mins = max(0, (next_hr - pd.Timestamp.now()).total_seconds() / 60)
-                    except Exception:
-                        mins = 0
+            # Fetch warm-up data
+            raw_df = fetch_candles(exchange, SYMBOL, '1h', 500)
+            raw_df = raw_df.reset_index()
+            raw_df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            last_candle_ts = raw_df['timestamp'].iloc[-1]
+
+            with LOCK:
+                STATE.status = "Building features..."
+
+            df = build_features_v3(raw_df.copy())
+            feat_cols = [c for c in BILSTM_FEATURES if c in df.columns]
+
+            env_kwargs = dict(
+                feature_cols=feat_cols,
+                initial_balance=10_000.0,
+                transaction_fee=0.001,
+                use_lstm_features=use_lstm,
+                lstm_model=bilstm,
+            )
+            env = CryptoTradingEnvV4(df, **env_kwargs)
+
+            with LOCK:
+                STATE.status = "Loading PPO model..."
+
+            model, vec_env = load_agent_v2(env, name='ppo_v4_final')
+
+            with LOCK:
+                STATE.status = "Warming up model (processing history)..."
+
+            # Fast-forward warm-up
+            obs = vec_env.reset()
+            warmup_steps = len(df) - SEQUENCE_LENGTH - 2
+            action_names = {0: 'FLAT', 1: 'LONG', 2: 'SHORT'}
+
+            for i in range(warmup_steps):
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, done, info = vec_env.step(action)
+                if isinstance(done, np.ndarray):
+                    done = done[0]
+                if done:
+                    break
+                if (i + 1) % 50 == 0:
+                    pct = (i + 1) / warmup_steps * 100
                     with LOCK:
-                        STATE.status = f"LIVE - Next candle in ~{mins:.0f}m"
+                        STATE.status = f"Warming up... {pct:.0f}%"
+
+            if isinstance(info, (list, tuple)):
+                info = info[0]
+
+            with LOCK:
+                STATE.warmup_done = True
+                STATE.balance = info.get('balance', 10_000.0)
+                STATE.n_trades = info.get('n_trades', 0)
+                STATE.position = info.get('position', 0)
+                STATE.total_return = info.get('total_return', 0.0) * 100
+                STATE.price = float(df['close'].iloc[-1])
+                STATE.status = "LIVE - Waiting for next candle..."
+
+            # ---- LIVE LOOP ----
+            while True:
+                try:
+                    candles = exchange.fetch_ohlcv(SYMBOL, '1h', limit=2)
+                    if len(candles) < 2:
+                        time.sleep(30)
+                        continue
+                    last_closed = candles[-2]
+                    new_ts = pd.Timestamp(last_closed[0], unit='ms')
+                    cur_price = candles[-1][4]  # current candle close
+
+                    with LOCK:
+                        STATE.price = cur_price
+
+                    if new_ts <= last_candle_ts:
+                        next_hr = last_candle_ts + pd.Timedelta(hours=1)
+                        try:
+                            mins = max(0, (next_hr - pd.Timestamp.now()).total_seconds() / 60)
+                        except Exception:
+                            mins = 0
+                        with LOCK:
+                            STATE.status = f"LIVE - Next candle in ~{mins:.0f}m"
+                        time.sleep(30)
+                        continue
+
+                    # NEW CANDLE
+                    last_candle_ts = new_ts
+                    with LOCK:
+                        STATE.live_candles += 1
+                        STATE.status = "Processing new candle..."
+
+                    new_row = pd.DataFrame([{
+                        'timestamp': new_ts,
+                        'open': last_closed[1], 'high': last_closed[2],
+                        'low': last_closed[3], 'close': last_closed[4],
+                        'volume': last_closed[5],
+                    }])
+                    raw_df = pd.concat([raw_df, new_row], ignore_index=True)
+                    if len(raw_df) > 600:
+                        raw_df = raw_df.iloc[-500:].reset_index(drop=True)
+
+                    df = build_features_v3(raw_df.copy())
+                    env = CryptoTradingEnvV4(df, **env_kwargs)
+                    model, vec_env = load_agent_v2(env, name='ppo_v4_final')
+
+                    obs = vec_env.reset()
+                    n_ff = len(df) - SEQUENCE_LENGTH - 1
+                    for i in range(n_ff):
+                        action, _ = model.predict(obs, deterministic=True)
+                        obs, reward, done_ff, info_ff = vec_env.step(action)
+                        if isinstance(done_ff, np.ndarray):
+                            done_ff = done_ff[0]
+                        if done_ff:
+                            break
+
+                    if isinstance(info_ff, (list, tuple)):
+                        info_ff = info_ff[0]
+
+                    action_int = int(action[0]) if hasattr(action, '__len__') else int(action)
+                    act_name = action_names.get(action_int, '?')
+
+                    price = info_ff.get('current_price', last_closed[4])
+                    balance = info_ff.get('balance', 10_000.0)
+                    position = info_ff.get('position', 0)
+                    n_trades = info_ff.get('n_trades', 0)
+                    total_ret = info_ff.get('total_return', 0.0) * 100
+
+                    # Detect signals
+                    last_idx = len(df) - 1
+                    signals = []
+                    for sig in ['bbrsi_setup', 'macd_adx_setup', 'mic_setup']:
+                        if sig in df.columns and df[sig].iloc[last_idx] == 1:
+                            signals.append(sig.replace('_setup', '').upper())
+                    sig_str = '+'.join(signals) if signals else 'none'
+
+                    with LOCK:
+                        STATE.price = price
+                        STATE.balance = balance
+                        STATE.position = position
+                        STATE.n_trades = n_trades
+                        STATE.total_return = total_ret
+                        STATE.last_action = act_name
+                        STATE.last_signal = sig_str
+                        STATE.action_dist[act_name] = STATE.action_dist.get(act_name, 0) + 1
+                        STATE.equity_curve.append({
+                            'time': new_ts.strftime('%m/%d %H:%M'),
+                            'price': round(price, 2),
+                            'balance': round(balance, 2),
+                            'position': position,
+                            'action': act_name,
+                            'signal': sig_str,
+                        })
+                        STATE.status = f"LIVE - Last update: {new_ts.strftime('%H:%M')}"
+
+                except Exception as e:
+                    with LOCK:
+                        STATE.error = str(e)
+                        STATE.status = f"LIVE - Error (retrying): {str(e)[:50]}"
                     time.sleep(30)
-                    continue
 
-                # NEW CANDLE
-                last_candle_ts = new_ts
-                with LOCK:
-                    STATE.live_candles += 1
-                    STATE.status = "Processing new candle..."
-
-                new_row = pd.DataFrame([{
-                    'timestamp': new_ts,
-                    'open': last_closed[1], 'high': last_closed[2],
-                    'low': last_closed[3], 'close': last_closed[4],
-                    'volume': last_closed[5],
-                }])
-                raw_df = pd.concat([raw_df, new_row], ignore_index=True)
-                if len(raw_df) > 600:
-                    raw_df = raw_df.iloc[-500:].reset_index(drop=True)
-
-                df = build_features_v3(raw_df.copy())
-                env = CryptoTradingEnvV4(df, **env_kwargs)
-                model, vec_env = load_agent_v2(env, name='ppo_v4_final')
-
-                obs = vec_env.reset()
-                n_ff = len(df) - SEQUENCE_LENGTH - 1
-                for i in range(n_ff):
-                    action, _ = model.predict(obs, deterministic=True)
-                    obs, reward, done_ff, info_ff = vec_env.step(action)
-                    if isinstance(done_ff, np.ndarray):
-                        done_ff = done_ff[0]
-                    if done_ff:
-                        break
-
-                if isinstance(info_ff, (list, tuple)):
-                    info_ff = info_ff[0]
-
-                action_int = int(action[0]) if hasattr(action, '__len__') else int(action)
-                act_name = action_names.get(action_int, '?')
-
-                price = info_ff.get('current_price', last_closed[4])
-                balance = info_ff.get('balance', 10_000.0)
-                position = info_ff.get('position', 0)
-                n_trades = info_ff.get('n_trades', 0)
-                total_ret = info_ff.get('total_return', 0.0) * 100
-
-                # Detect signals
-                last_idx = len(df) - 1
-                signals = []
-                for sig in ['bbrsi_setup', 'macd_adx_setup', 'mic_setup']:
-                    if sig in df.columns and df[sig].iloc[last_idx] == 1:
-                        signals.append(sig.replace('_setup', '').upper())
-                sig_str = '+'.join(signals) if signals else 'none'
-
-                with LOCK:
-                    STATE.price = price
-                    STATE.balance = balance
-                    STATE.position = position
-                    STATE.n_trades = n_trades
-                    STATE.total_return = total_ret
-                    STATE.last_action = act_name
-                    STATE.last_signal = sig_str
-                    STATE.action_dist[act_name] = STATE.action_dist.get(act_name, 0) + 1
-                    STATE.equity_curve.append({
-                        'time': new_ts.strftime('%m/%d %H:%M'),
-                        'price': round(price, 2),
-                        'balance': round(balance, 2),
-                        'position': position,
-                        'action': act_name,
-                        'signal': sig_str,
-                    })
-                    STATE.status = f"LIVE - Last update: {new_ts.strftime('%H:%M')}"
-
-            except Exception as e:
-                with LOCK:
-                    STATE.error = str(e)
-                    STATE.status = f"LIVE - Error (retrying): {str(e)[:50]}"
-                time.sleep(30)
-
-    except Exception as e:
-        with LOCK:
-            STATE.status = f"CRASHED: {str(e)[:80]}"
-            STATE.error = traceback.format_exc()
+        except Exception as e:
+            with LOCK:
+                STATE.status = f"RESTARTING LOOP: {str(e)[:50]}"
+                STATE.error = traceback.format_exc()
+            time.sleep(30)
 
 
 # ---------------------------------------------------------------------------
