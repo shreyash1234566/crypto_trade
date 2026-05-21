@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-╔══════════════════════════════════════════════════════════════════════╗
-║          CRYPTO TRADING PRO — Research-Backed Trading System         ║
-║                                                                      ║
-║  Strategies:                                                         ║
-║   1. Multi-Indicator Confluence (EMA+RSI+MACD+ATR)                  ║
-║      → IEEE paper: profit factor 3.5, win rate 60%                  ║
-║   2. MACD-ADX Trend Momentum                                         ║
-║      → arXiv:2511.00665: optimal params for BTC/USDT 2024           ║
-║   3. BB-RSI Mean Reversion                                           ║
-║      → ClucMay72018: 80% win rate, Sharpe 1.84                      ║
-║   4. ML-Enhanced (LogReg rolling window filter)                      ║
-║      → Research paper: reduces false positives by 30-40%            ║
-║                                                                      ║
-║  Features:                                                           ║
-║   - No lookahead bias (signals on close, execute on next open)       ║
-║   - Realistic fees (0.1%) + slippage (0.05%)                        ║
-║   - Risk-based position sizing (2% per trade)                        ║
-║   - Walk-forward validation (anti-overfitting)                       ║
-║   - Comprehensive performance reporting                              ║
-╚══════════════════════════════════════════════════════════════════════╝
+------------------------------------------------------------------------
+-          CRYPTO TRADING PRO -- Research-Backed Trading System         -
+-                                                                      -
+-  Strategies:                                                         -
+-   1. Multi-Indicator Confluence (EMA+RSI+MACD+ATR)                  -
+-      -> IEEE paper: profit factor 3.5, win rate 60%                  -
+-   2. MACD-ADX Trend Momentum                                         -
+-      -> arXiv:2511.00665: optimal params for BTC/USDT 2024           -
+-   3. BB-RSI Mean Reversion                                           -
+-      -> ClucMay72018: 80% win rate, Sharpe 1.84                      -
+-   4. ML-Enhanced (LogReg rolling window filter)                      -
+-      -> Research paper: reduces false positives by 30-40%            -
+-                                                                      -
+-  Features:                                                           -
+-   - No lookahead bias (signals on close, execute on next open)       -
+-   - Realistic fees (0.1%) + slippage (0.05%)                        -
+-   - Risk-based position sizing (2% per trade)                        -
+-   - Walk-forward validation (anti-overfitting)                       -
+-   - Comprehensive performance reporting                              -
+------------------------------------------------------------------------
 
 Usage:
   python main.py --symbol BTC/USDT --timeframe 1h --days 365 --mode backtest
@@ -42,9 +42,9 @@ warnings.filterwarnings('ignore')
 
 def banner():
     print("""
-╔══════════════════════════════════════════════════════════════════╗
-║         🚀 CRYPTO TRADING PRO — Research-Backed System          ║
-╚══════════════════════════════════════════════════════════════════╝
+--------------------------------------------------------------------
+-         🚀 CRYPTO TRADING PRO -- Research-Backed System          -
+--------------------------------------------------------------------
 """)
 
 
@@ -57,17 +57,17 @@ def run_backtest(symbol: str, timeframe: str, days: int,
     from data.features import add_all_features
     from backtest.engine import BacktestEngine, BacktestConfig, walk_forward_backtest
 
-    # ── Load data ──────────────────────────────────────────────────────
+    # -- Load data ------------------------------------------------------
     print(f"\n[1/4] Fetching {symbol} {timeframe} data ({days} days)...")
     df = fetch_ohlcv(symbol, timeframe, days)
-    print(f"      → {len(df):,} candles from {df.index[0].date()} to {df.index[-1].date()}")
+    print(f"      -> {len(df):,} candles from {df.index[0].date()} to {df.index[-1].date()}")
 
-    # ── Add features ───────────────────────────────────────────────────
+    # -- Add features ---------------------------------------------------
     print(f"[2/4] Computing technical indicators...")
     df = add_all_features(df)
-    print(f"      → {len(df):,} candles after indicator warmup")
+    print(f"      -> {len(df):,} candles after indicator warmup")
 
-    # ── Load strategy ──────────────────────────────────────────────────
+    # -- Load strategy --------------------------------------------------
     print(f"[3/4] Generating signals with {strategy_name}...")
     strategy = _load_strategy(strategy_name, config)
 
@@ -75,9 +75,9 @@ def run_backtest(symbol: str, timeframe: str, days: int,
         from models.ml_enhancer import MLSignalEnhancer
         ml_config = {'precision_floor': precision_floor, 'weight_scale': weight_scale}
         strategy = MLSignalEnhancer(strategy, config=ml_config)
-        print(f"      → ML enhancement enabled (LogisticRegression rolling filter, precision floor={precision_floor}, weight scale={weight_scale})")
+        print(f"      -> ML enhancement enabled (LogisticRegression rolling filter, precision floor={precision_floor}, weight scale={weight_scale})")
 
-    # ── Backtest ───────────────────────────────────────────────────────
+    # -- Backtest -------------------------------------------------------
     bt_config = BacktestConfig(
         initial_capital=config.get('capital', 10000),
         fee_rate=config.get('fee_rate', 0.001),
@@ -154,9 +154,9 @@ def cmd_compare(args):
     use_ml = [False, False, True]  # Apply ML to bb_rsi
 
     for i, strat in enumerate(strategy_names):
-        print(f"\n{'─'*60}")
+        print(f"\n{'-'*60}")
         print(f"  Running strategy: {strat.upper()}")
-        print(f"{'─'*60}")
+        print(f"{'-'*60}")
         try:
             result = run_backtest(
                 symbol=args.symbol,
@@ -260,7 +260,7 @@ def _plot_equity(equity_curve: list, df: pd.DataFrame, name: str, symbol: str):
                          alpha=0.2, color='#00ff88', label='Profit Zone')
         ax1.fill_between(dates, eq[0], eq[:n], where=eq[:n] < eq[0],
                          alpha=0.2, color='#ff4444', label='Loss Zone')
-        ax1.set_title(f'{name} — {symbol} Equity Curve', color='white', fontsize=14, fontweight='bold')
+        ax1.set_title(f'{name} -- {symbol} Equity Curve', color='white', fontsize=14, fontweight='bold')
         ax1.set_ylabel('Portfolio Value (USD)', color='#aaa')
         ax1.tick_params(colors='#aaa')
         ax1.legend(loc='upper left', facecolor='#1a1a2e', labelcolor='white', fontsize=9)
@@ -291,7 +291,7 @@ def _plot_equity(equity_curve: list, df: pd.DataFrame, name: str, symbol: str):
 def main():
     banner()
     parser = argparse.ArgumentParser(
-        description='Crypto Trading Pro — Research-Backed System',
+        description='Crypto Trading Pro -- Research-Backed System',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--symbol',    default='BTC/USDT', help='Trading pair (default: BTC/USDT)')

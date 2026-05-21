@@ -41,8 +41,8 @@ LOOKBACK_DAYS = 365        # 1 year of historical data (doubled for better gener
 # =============================================================================
 # Bi-LSTM (Enhanced architecture v2)
 SEQUENCE_LENGTH = 60       # 60 candles lookback (15 hours for 15-min)
-LSTM_HIDDEN_SIZE = 128     # Hidden units — Bi-LSTM layer 1
-LSTM_HIDDEN_SIZE_L2 = 64   # Hidden units — Bi-LSTM layer 2 (decreasing width)
+LSTM_HIDDEN_SIZE = 128     # Hidden units -- Bi-LSTM layer 1
+LSTM_HIDDEN_SIZE_L2 = 64   # Hidden units -- Bi-LSTM layer 2 (decreasing width)
 LSTM_NUM_LAYERS = 2        # Number of Bi-LSTM layers
 STATE_DIM = 64             # Output state vector dimension
 ATTENTION_HEADS = 4        # Multi-head attention heads (+2-4% accuracy)

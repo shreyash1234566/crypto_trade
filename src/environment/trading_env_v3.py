@@ -1,25 +1,25 @@
 """
-trading_env_v3.py — PPO environment built on the +7.96% ROI strategy findings.
+trading_env_v3.py -- PPO environment built on the +7.96% ROI strategy findings.
 
-What changed from v2 → v3:
-─────────────────────────────────────────────────────────────────
-CHANGE 1 ► Observation now 76-dim (was 70)
+What changed from v2 -> v3:
+-----------------------------------------------------------------
+CHANGE 1 > Observation now 76-dim (was 70)
   Added 6 strategy features directly to PPO observation:
   [price_above_200, ema8_21_cross, price_above_ema21, adx_norm, rsi_norm, bb_pct_norm]
   The PPO can now SEE the regime filter and entry signal explicitly.
 
-CHANGE 2 ► Regime penalty in reward
-  When long AND price_above_200 = 0 → extra -0.005/step
+CHANGE 2 > Regime penalty in reward
+  When long AND price_above_200 = 0 -> extra -0.005/step
   This directly teaches the PPO the #1 rule from optimized_trend.py:
   "never go long in a bear market"
 
-CHANGE 3 ► Trailing stop signal in reward
-  When long AND price_above_ema21 = 0 → extra -0.003/step
+CHANGE 3 > Trailing stop signal in reward
+  When long AND price_above_ema21 = 0 -> extra -0.003/step
   This teaches the PPO to exit when price drops below EMA21
   (the exact exit rule that kept max drawdown at 5.96%)
 
-CHANGE 4 ► Entry quality bonus
-  When ema8_21_cross=1 AND price_above_200=1 AND agent goes long → +0.003
+CHANGE 4 > Entry quality bonus
+  When ema8_21_cross=1 AND price_above_200=1 AND agent goes long -> +0.003
   Rewards the PPO for entering on the exact setup that produced +7.96%
 
 Place at: src/environment/trading_env_v3.py
@@ -52,9 +52,9 @@ class CryptoTradingEnvV3(gym.Env):
         2 = Go Short  (enter/hold short)
 
     Reward:
-        Trade close:   log(new_balance / old_balance) × scale
-                       losses: 1.5× multiplier (asymmetric — teaches caution)
-        Holding:       0.05 × Δ(unrealized_pnl)  [dense signal]
+        Trade close:   log(new_balance / old_balance) x scale
+                       losses: 1.5x multiplier (asymmetric -- teaches caution)
+        Holding:       0.05 x delta(unrealized_pnl)  [dense signal]
         Flat:         -0.0001/step               [anti-lazy penalty]
         + Regime penalty:    -0.005/step when long in bear market
         + Trailing penalty:  -0.003/step when long but price < EMA21
@@ -155,10 +155,10 @@ class CryptoTradingEnvV3(gym.Env):
         reward  = 0.0
         target  = {0: 0, 1: 1, 2: -1}[action]
 
-        # ── Anti-overtrading: enforce cooldown after trade close ──────────
+        # -- Anti-overtrading: enforce cooldown after trade close ----------
         in_cooldown = self.current_step < self.cooldown_until
         if in_cooldown and self.position == 0 and target != 0:
-            # Agent wants to open during cooldown → force flat
+            # Agent wants to open during cooldown -> force flat
             target = 0
 
         if target == self.position:
@@ -196,7 +196,7 @@ class CryptoTradingEnvV3(gym.Env):
 
         return obs, float(reward), terminated, truncated, info
 
-    # ── Reward helpers ────────────────────────────────────────────────────────
+    # -- Reward helpers --------------------------------------------------------
 
     def _open_reward(self, price: float, direction: int) -> float:
         """Bonus for entering on the exact +7.96% setup."""
@@ -244,7 +244,7 @@ class CryptoTradingEnvV3(gym.Env):
         reward       = self.PROFIT_SCALE * log_return if log_return >= 0 \
                        else self.LOSS_SCALE * log_return
 
-        # ── Anti-overtrading: churn penalty for short-lived trades ────────
+        # -- Anti-overtrading: churn penalty for short-lived trades --------
         hold_duration = self.current_step - self.entry_step
         if hold_duration < self.MIN_HOLD_STEPS and reason != 'stop_loss':
             reward += self.CHURN_PENALTY  # penalize quick flips
@@ -258,7 +258,7 @@ class CryptoTradingEnvV3(gym.Env):
         self.position        = 0
         self.entry_price     = 0.0
         self.prev_unrealized = 0.0
-        # Start cooldown — agent must stay flat for COOLDOWN_STEPS
+        # Start cooldown -- agent must stay flat for COOLDOWN_STEPS
         self.cooldown_until  = self.current_step + self.COOLDOWN_STEPS
         return reward
 
@@ -282,7 +282,7 @@ class CryptoTradingEnvV3(gym.Env):
             return self._close_position(price, reason='stop_loss')
         return 0.0
 
-    # ── Observation ───────────────────────────────────────────────────────────
+    # -- Observation -----------------------------------------------------------
 
     def _get_market_state(self) -> np.ndarray:
         if self.use_lstm:

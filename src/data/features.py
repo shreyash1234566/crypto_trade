@@ -147,7 +147,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     Add technical indicators and derived features to OHLCV data.
     
     v3 architecture: All indicators computed on RAW prices (no pre-smoothing)
-    to preserve predictive signal. No intermediate z-score clipping — only
+    to preserve predictive signal. No intermediate z-score clipping -- only
     the final rolling z-score normalization is applied downstream.
     
     Feature tiers:
@@ -165,12 +165,12 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna(how='any')
 
     # ======================================================================
-    # SMOOTHED CLOSE — only used for trend ratio feature, NOT for indicators
+    # SMOOTHED CLOSE -- only used for trend ratio feature, NOT for indicators
     # ======================================================================
     df['close_ema'] = _ema_smooth(df['close'], span=PRICE_SMOOTHING_SPAN)
     
     # ==========================================================================
-    # CRITICAL TIER — Price Features (computed on RAW close)
+    # CRITICAL TIER -- Price Features (computed on RAW close)
     # ==========================================================================
     
     # Log returns on raw close to preserve market microstructure
@@ -180,7 +180,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['volatility'] = df['log_return'].rolling(window=20).std()
     
     # ==========================================================================
-    # MULTI-SCALE — Rate of Change at different horizons
+    # MULTI-SCALE -- Rate of Change at different horizons
     # ==========================================================================
     df['roc_5'] = df['close'].pct_change(periods=5)
     df['roc_20'] = df['close'].pct_change(periods=20)
@@ -191,7 +191,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['vol_regime'] = vol_short / (vol_long + 1e-8)
     
     # ==========================================================================
-    # CRITICAL TIER — RSI Multi-Scale (7/14/28 periods)
+    # CRITICAL TIER -- RSI Multi-Scale (7/14/28 periods)
     # ==========================================================================
     df['rsi_7'] = ta.momentum.RSIIndicator(
         close=df['close'], window=7
@@ -204,7 +204,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     ).rsi()
     
     # ==========================================================================
-    # CRITICAL TIER — MACD (on raw close)
+    # CRITICAL TIER -- MACD (on raw close)
     # ==========================================================================
     macd = ta.trend.MACD(
         close=df['close'],
@@ -216,7 +216,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['macd_hist'] = macd.macd_diff()
     
     # ==========================================================================
-    # CRITICAL TIER — Bollinger Bands %B (on raw close)
+    # CRITICAL TIER -- Bollinger Bands %B (on raw close)
     # ==========================================================================
     bb = ta.volatility.BollingerBands(
         close=df['close'],
@@ -226,7 +226,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['bb_pct'] = bb.bollinger_pband()
     
     # ==========================================================================
-    # CRITICAL TIER — ATR (Average True Range)
+    # CRITICAL TIER -- ATR (Average True Range)
     # ==========================================================================
     df['atr'] = ta.volatility.AverageTrueRange(
         high=df['high'],
@@ -238,13 +238,13 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['atr_pct'] = df['atr'] / df['close']
     
     # ==========================================================================
-    # CRITICAL TIER — Volume Ratio (no intermediate clipping)
+    # CRITICAL TIER -- Volume Ratio (no intermediate clipping)
     # ==========================================================================
     vol_ma = df['volume'].rolling(window=20, min_periods=5).mean()
     df['volume_ratio'] = df['volume'] / (vol_ma + 1e-8)
     
     # ==========================================================================
-    # HIGH TIER — OBV (On-Balance Volume)
+    # HIGH TIER -- OBV (On-Balance Volume)
     # ==========================================================================
     df['obv'] = ta.volume.OnBalanceVolumeIndicator(
         close=df['close'],
@@ -254,7 +254,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['obv_roc'] = df['obv'].pct_change(periods=5)
     
     # ==========================================================================
-    # HIGH TIER — EMA 9/21 Crossover Signal
+    # HIGH TIER -- EMA 9/21 Crossover Signal
     # ==========================================================================
     ema_9 = ta.trend.EMAIndicator(close=df['close'], window=9).ema_indicator()
     ema_21 = ta.trend.EMAIndicator(close=df['close'], window=21).ema_indicator()
@@ -262,7 +262,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['ema_cross'] = (ema_9 - ema_21) / (df['close'] + 1e-8)
     
     # ==========================================================================
-    # HIGH TIER — Stochastic Oscillator %K/%D
+    # HIGH TIER -- Stochastic Oscillator %K/%D
     # ==========================================================================
     stoch = ta.momentum.StochasticOscillator(
         high=df['high'],
@@ -275,7 +275,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['stoch_d'] = stoch.stoch_signal()
     
     # ==========================================================================
-    # HIGH TIER — VWAP Deviation (no intermediate clipping)
+    # HIGH TIER -- VWAP Deviation (no intermediate clipping)
     # ==========================================================================
     typical_price = (df['high'] + df['low'] + df['close']) / 3.0
     cum_tp_vol = (typical_price * df['volume']).rolling(window=96, min_periods=10).sum()
@@ -284,7 +284,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['vwap_dev'] = (df['close'] - df['vwap']) / (df['vwap'] + 1e-8)
     
     # ==========================================================================
-    # HIGH TIER — Candle Structure Features
+    # HIGH TIER -- Candle Structure Features
     # ==========================================================================
     candle_range = df['high'] - df['low']
     # Body ratio: signed, positive = bullish, negative = bearish
@@ -302,7 +302,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     # Volume change (raw volume, no EMA smoothing)
     df['volume_change'] = df['volume'].pct_change()
     
-    # Trend ratio: raw price vs smoothed — measures deviation from trend
+    # Trend ratio: raw price vs smoothed -- measures deviation from trend
     df['price_ema_ratio'] = df['close'] / df['close_ema']
     
     # ==========================================================================
@@ -396,7 +396,7 @@ def prepare_features(
     print(f"After features: {len(df):,} candles, {len(df.columns)} columns")
     
     # ======================================================================
-    # v3 candidate feature set — multi-scale + raw signal preservation
+    # v3 candidate feature set -- multi-scale + raw signal preservation
     # ======================================================================
     candidate_raw_cols = [
         # Critical tier (always include)
@@ -439,12 +439,12 @@ def prepare_features(
         available_norm_cols = [c for c in norm_cols if c in df.columns]
         if len(available_norm_cols) >= 3 and 'target' in df.columns:
             importance_df = rank_features_lgbm(df, available_norm_cols, 'target')
-            print("\n📊 LightGBM Feature Importance Ranking:")
+            print("\n[CHART] LightGBM Feature Importance Ranking:")
             print(importance_df.to_string(index=False))
     except ImportError:
-        print("⚠️  lightgbm not installed — skipping feature importance ranking")
+        print("[WARN]  lightgbm not installed -- skipping feature importance ranking")
     except Exception as e:
-        print(f"⚠️  Feature importance ranking failed: {e}")
+        print(f"[WARN]  Feature importance ranking failed: {e}")
 
     # Save
     if save:
@@ -475,7 +475,7 @@ def get_feature_columns() -> list:
     if saved:
         return saved
 
-    # Default fallback — v3 expanded feature set with multi-scale
+    # Default fallback -- v3 expanded feature set with multi-scale
     return [
         'close', 'volume',
         'log_return_norm', 'volatility_norm', 'rsi_norm',

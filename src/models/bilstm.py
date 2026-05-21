@@ -2,18 +2,18 @@
 Bi-LSTM Feature Extractor - Enhanced architecture for 70-75% accuracy.
 
 Architecture (from research guide):
-- Input: 60 candles × ~22 features
+- Input: 60 candles x ~22 features
 - BatchNorm1d on input features
 - Bi-LSTM Layer 1: 128 hidden units, dropout=0.2
 - Bi-LSTM Layer 2: 64 hidden units, dropout=0.2
-- MultiheadAttention (128 dim, 4 heads) ← +2-4% accuracy
+- MultiheadAttention (128 dim, 4 heads) <- +2-4% accuracy
 - LayerNorm(128)
-- Dense head: 128 → 64 → 32 → output (64-dim state)
-- Classifier: output → 32 → 1 (Sigmoid) for pre-training
+- Dense head: 128 -> 64 -> 32 -> output (64-dim state)
+- Classifier: output -> 32 -> 1 (Sigmoid) for pre-training
 
 Pre-training:
 - Task: Predict next candle direction (up/down)
-- Loss: Focal Loss (γ=2) for class imbalance
+- Loss: Focal Loss (gamma=2) for class imbalance
 - After training, freeze weights and use as feature extractor for PPO
 """
 import torch
@@ -44,14 +44,14 @@ class FocalLoss(nn.Module):
     From "Focal Loss for Dense Object Detection" (Lin et al., 2017).
     Down-weights easy examples and focuses training on hard misclassified ones.
     
-    With γ=2: well-classified examples (pt>0.6) get 4x less weight.
+    With gamma=2: well-classified examples (pt>0.6) get 4x less weight.
     """
     
     def __init__(self, gamma: float = 2.0, alpha: float = 0.25):
         """
         Args:
             gamma: Focusing parameter. Higher = more focus on hard examples.
-                   γ=0 is equivalent to BCE. γ=2 is recommended default.
+                   gamma=0 is equivalent to BCE. gamma=2 is recommended default.
             alpha: Balancing factor for positive class (1-alpha for negative).
         """
         super().__init__()
@@ -76,7 +76,7 @@ class FocalLoss(nn.Module):
         # Class-balancing weight
         alpha_t = torch.where(target == 1, self.alpha, 1 - self.alpha)
         
-        # Focal modulating factor: (1 - pt)^γ
+        # Focal modulating factor: (1 - pt)^gamma
         focal_weight = alpha_t * (1 - pt) ** self.gamma
         
         return (focal_weight * bce).mean()
@@ -111,7 +111,7 @@ class BiLSTMFeatureExtractor(nn.Module):
     Enhanced Bi-directional LSTM with self-attention for market state extraction.
     
     Architecture follows research guide recommendations:
-    - 2-layer Bi-LSTM with decreasing width (128→64)
+    - 2-layer Bi-LSTM with decreasing width (128->64)
     - Multi-head self-attention after LSTM
     - BatchNorm at input, LayerNorm after attention
     - Deeper dense head with dropout
@@ -146,7 +146,7 @@ class BiLSTMFeatureExtractor(nn.Module):
         self.use_attention = use_attention
         
         # ====================================================================
-        # Input normalization — stabilizes training across different features
+        # Input normalization -- stabilizes training across different features
         # ====================================================================
         self.batch_norm = nn.BatchNorm1d(input_size)
         
@@ -180,7 +180,7 @@ class BiLSTMFeatureExtractor(nn.Module):
         attn_dim = hidden_size_l2 * 2
         
         # ====================================================================
-        # Self-Attention — captures which timesteps matter most (+2-4% acc)
+        # Self-Attention -- captures which timesteps matter most (+2-4% acc)
         # ====================================================================
         # Temporal attention pooling (replaces last-timestep-only)
         self.temporal_pool = TemporalAttentionPool(attn_dim)
@@ -231,7 +231,7 @@ class BiLSTMFeatureExtractor(nn.Module):
         # ====================================================================
         # BatchNorm: normalize across features for each sample
         # BatchNorm1d expects (batch, features) or (batch, features, length)
-        # We have (batch, seq_len, features) → permute to (batch, features, seq_len)
+        # We have (batch, seq_len, features) -> permute to (batch, features, seq_len)
         # ====================================================================
         x = x.permute(0, 2, 1)  # (batch, features, seq_len)
         x = self.batch_norm(x)
@@ -366,9 +366,9 @@ def train_bilstm(
     """
     Pre-train Bi-LSTM on direction prediction task.
     
-    v3 defaults: BCE loss (not Focal — classes are balanced), label smoothing
-    (ε=0.05 to soften ambiguous near-zero-return samples), and Mixup
-    augmentation (α=0.2 to increase effective dataset size).
+    v3 defaults: BCE loss (not Focal -- classes are balanced), label smoothing
+    (epsilon=0.05 to soften ambiguous near-zero-return samples), and Mixup
+    augmentation (alpha=0.2 to increase effective dataset size).
     
     Args:
         model: BiLSTM model
@@ -597,8 +597,8 @@ def load_model(filename: str = 'bilstm_best.pt') -> BiLSTMFeatureExtractor:
             use_attention=checkpoint.get('use_attention', True)
         )
     else:
-        # Legacy v1 model — create with backward-compatible settings
-        print("⚠️  Loading legacy v1 model — consider retraining with v2 architecture")
+        # Legacy v1 model -- create with backward-compatible settings
+        print("[WARN]  Loading legacy v1 model -- consider retraining with v2 architecture")
         model = BiLSTMFeatureExtractor(
             input_size=checkpoint['input_size'],
             hidden_size=checkpoint['hidden_size'],
@@ -625,7 +625,7 @@ def freeze_model(model: BiLSTMFeatureExtractor):
 
 def mixup_data(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.2):
     """
-    Apply Mixup augmentation — interpolates between random pairs of
+    Apply Mixup augmentation -- interpolates between random pairs of
     training samples to create synthetic data points.
     
     This acts as a strong regularizer and improves generalization,

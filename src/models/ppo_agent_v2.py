@@ -1,64 +1,64 @@
 """
-PPO Agent v2 — Correct architecture for Bi-LSTM + PPO.
+PPO Agent v2 -- Correct architecture for Bi-LSTM + PPO.
 
 WHAT WAS WRONG IN ppo_agent.py:
-─────────────────────────────────────────────────────────────────────────────
-WRONG 1 ► Used RecurrentPPO (sb3_contrib) instead of regular PPO.
+-----------------------------------------------------------------------------
+WRONG 1 > Used RecurrentPPO (sb3_contrib) instead of regular PPO.
   RecurrentPPO wraps its own LSTM around whatever observations come in.
   Your BiLSTM ALREADY handles temporal dependencies. Stacking an LSTM on top
-  of LSTM features is not just redundant — it is harmful:
+  of LSTM features is not just redundant -- it is harmful:
     - The inner LSTM gets a sequence of BiLSTM states (each state already
       summarises 60 candles). It then tries to find patterns in THOSE states.
       That is a second level of temporal abstraction that serves no purpose.
     - RecurrentPPO is slower, harder to tune, and has more failure modes
       (BPTT through time, hidden state resets at episode boundaries, etc.)
     - Research (Stanford CS224R 2024): "end-to-end LSTM feeding into LSTM
-      failed to generalise" — use the frozen LSTM as extractor, then MLP.
+      failed to generalise" -- use the frozen LSTM as extractor, then MLP.
 
-WRONG 2 ► n_epochs=3 is far too few.
-  Standard PPO (Schulman 2017) uses 10–30 epochs per rollout.
+WRONG 2 > n_epochs=3 is far too few.
+  Standard PPO (Schulman 2017) uses 10-30 epochs per rollout.
   3 epochs means you throw away 90% of the gradient information in each
   rollout. The agent barely learns from each batch of experience.
 
-WRONG 3 ► clip_range=0.1154 is too small.
+WRONG 3 > clip_range=0.1154 is too small.
   Standard is 0.2. A very tight clip prevents the policy from updating even
   when the gradient is clearly correct. The agent gets stuck.
 
-WRONG 4 ► learning_rate=4.4e-5 from Optuna was the result of a FAILING search.
+WRONG 4 > learning_rate=4.4e-5 from Optuna was the result of a FAILING search.
   The Optuna study's best_value was -0.0403 (agent was LOSING money at the
   best trial). These hyperparameters were tuned on a broken environment
-  (no position info → noisy reward signal → Optuna converged to garbage).
+  (no position info -> noisy reward signal -> Optuna converged to garbage).
 
-WRONG 5 ► BiLSTMFeaturesExtractor.forward() returned observations unchanged.
+WRONG 5 > BiLSTMFeaturesExtractor.forward() returned observations unchanged.
   When bilstm_model is not None:
-      return observations   ← This is fine ONLY because the env already
+      return observations   <- This is fine ONLY because the env already
                                extracts LSTM features before passing them in.
   But using RecurrentPPO on top made this a double-LSTM architecture anyway.
 
 CORRECT DESIGN IN V2:
-─────────────────────
+---------------------
   Environment extracts 64-dim BiLSTM state + 6 account features = 70-dim obs
   PPO (regular, MlpPolicy) gets a clean 70-dim observation each step
   Policy network: pi=[128, 64, 32], vf=[128, 64, 32], Tanh activation
   Tanh is better than ReLU for bounded action distributions in finance
   (Schulman 2017, Mnih 2016: ReLU causes "dying units" in critic networks).
 
-CORRECT HYPERPARAMETERS — and the reasoning behind each:
-─────────────────────────────────────────────────────────
+CORRECT HYPERPARAMETERS -- and the reasoning behind each:
+---------------------------------------------------------
   n_steps=2048          Standard rollout length. Balances bias/variance in
                         GAE advantage estimation. 4096 from Optuna is too big
                         and makes each update stale.
 
-  batch_size=64         Smaller batch → noisier but more gradient updates per
+  batch_size=64         Smaller batch -> noisier but more gradient updates per
                         rollout. Financial time series benefits from more
                         updates to handle non-stationarity.
 
   n_epochs=10           Standard. 10 passes through each rollout buffer.
-                        (Optuna had 3 — we fixed this, the biggest gain.)
+                        (Optuna had 3 -- we fixed this, the biggest gain.)
 
-  gamma=0.99            High discount factor. Trades can be open for 10–100
+  gamma=0.99            High discount factor. Trades can be open for 10-100
                         steps; we need the agent to value future rewards.
-                        (Optuna had 0.9795 — close but not optimal.)
+                        (Optuna had 0.9795 -- close but not optimal.)
 
   gae_lambda=0.95       Standard. Controls bias/variance tradeoff in GAE.
 
@@ -66,18 +66,18 @@ CORRECT HYPERPARAMETERS — and the reasoning behind each:
                         which was too tight.
 
   ent_coef=0.01         Standard. Enough entropy to explore without chaos.
-                        (Optuna had 0.028 — slightly high, caused random
+                        (Optuna had 0.028 -- slightly high, caused random
                         action noise even after the agent found good policies.)
 
   vf_coef=0.5           Standard. Equal weighting of value and policy losses.
 
   learning_rate=3e-4    Standard Adam learning rate for neural networks.
-  → 1e-5 (linear decay) Start fast, end stable.
+  -> 1e-5 (linear decay) Start fast, end stable.
 
   max_grad_norm=0.5     Standard gradient clipping. Prevents occasional
                         large gradient spikes from destabilising training.
 
-  normalize_advantage=True  Always True — removes scale sensitivity.
+  normalize_advantage=True  Always True -- removes scale sensitivity.
 
   net_arch pi=[128,64,32]   3 layers is enough. Large networks overfit on
            vf=[128,64,32]   small financial datasets (~17k candles).
@@ -109,21 +109,21 @@ from config.settings import STATE_DIM, MODELS_DIR, DEVICE_PPO
 from src.models.bilstm import BiLSTMFeatureExtractor
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PPO hyperparameters (with reasoning in comments)
-# These are NOT from Optuna — Optuna failed (best_value = -0.0403).
+# These are NOT from Optuna -- Optuna failed (best_value = -0.0403).
 # These are standard PPO values validated across hundreds of finance papers.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 LEARNING_RATE_START = 3e-4     # Standard Adam start for PPO networks
-LEARNING_RATE_END   = 1e-5     # Decay target — stabilises at end of training
+LEARNING_RATE_END   = 1e-5     # Decay target -- stabilises at end of training
 N_STEPS             = 2048     # Steps per rollout per env
 BATCH_SIZE          = 64       # Mini-batch size for SGD updates
 N_EPOCHS            = 10       # Gradient passes through each rollout buffer
-GAMMA               = 0.99     # Discount — high because trades span many steps
+GAMMA               = 0.99     # Discount -- high because trades span many steps
 GAE_LAMBDA          = 0.95     # GAE bias/variance tradeoff (standard)
 CLIP_RANGE          = 0.2      # PPO clip (standard Schulman 2017)
-ENT_COEF            = 0.01     # Entropy bonus — enough to explore
+ENT_COEF            = 0.01     # Entropy bonus -- enough to explore
 VF_COEF             = 0.5      # Value function loss weight (standard)
 MAX_GRAD_NORM       = 0.5      # Gradient clipping (prevents spikes)
 
@@ -133,9 +133,9 @@ MAX_GRAD_NORM       = 0.5      # Gradient clipping (prevents spikes)
 NET_ARCH = dict(pi=[128, 64, 32], vf=[128, 64, 32])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Passthrough feature extractor
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class PassthroughExtractor(BaseFeaturesExtractor):
     """
@@ -143,13 +143,13 @@ class PassthroughExtractor(BaseFeaturesExtractor):
 
     The environment already extracts BiLSTM features and concatenates
     account state. The observation is a clean 70-dim vector. We don't
-    need another transformation layer — just tell SB3 "features_dim = obs_dim"
+    need another transformation layer -- just tell SB3 "features_dim = obs_dim"
     so it builds the correct policy head size.
 
     WHY NOT use the BiLSTM inside the extractor?
-    ─────────────────────────────────────────────
-    Option A (original design): BiLSTM in env → 64-dim obs → PPO extractor passthrough
-    Option B: raw features in obs → PPO extractor calls BiLSTM → PPO policy
+    ---------------------------------------------
+    Option A (original design): BiLSTM in env -> 64-dim obs -> PPO extractor passthrough
+    Option B: raw features in obs -> PPO extractor calls BiLSTM -> PPO policy
 
     Option A is correct. The BiLSTM processes a SEQUENCE (60 candles) per step.
     The SB3 policy only sees a single observation vector per step. Putting the
@@ -161,16 +161,16 @@ class PassthroughExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: gym.spaces.Box):
         obs_dim = observation_space.shape[0]
         super().__init__(observation_space, features_dim=obs_dim)
-        # Identity transformation — no learnable parameters
+        # Identity transformation -- no learnable parameters
         self._features_dim = obs_dim
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         return observations   # pass through unchanged
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Callbacks
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TradeMetricsCallback(BaseCallback):
     """
@@ -225,7 +225,7 @@ class EntropyScheduleCallback(BaseCallback):
     WHY: High entropy early forces the agent to explore many actions.
     As training progresses and the agent finds good policies, we want
     it to EXPLOIT those policies, not keep exploring randomly.
-    Entropy schedule: 0.02 → 0.005 over 500k steps.
+    Entropy schedule: 0.02 -> 0.005 over 500k steps.
 
     Note: SB3 supports callable schedules for learning_rate but not
     for ent_coef. We implement it manually via this callback.
@@ -239,16 +239,16 @@ class EntropyScheduleCallback(BaseCallback):
         self.total_timesteps = total_timesteps
 
     def _on_step(self) -> bool:
-        progress = self.num_timesteps / self.total_timesteps       # 0.0 → 1.0
+        progress = self.num_timesteps / self.total_timesteps       # 0.0 -> 1.0
         current  = self.ent_start + progress * (self.ent_end - self.ent_start)
         self.model.ent_coef = max(current, self.ent_end)
         self.logger.record('train/ent_coef', self.model.ent_coef)
         return True
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Agent factory
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def create_ppo_agent_v2(
     env: gym.Env,
@@ -268,7 +268,7 @@ def create_ppo_agent_v2(
         PPO agent (stable_baselines3.PPO, NOT RecurrentPPO).
     """
 
-    # ── 1. Wrap environment ───────────────────────────────────────────────────
+    # -- 1. Wrap environment ---------------------------------------------------
     # DummyVecEnv: runs a single env. For faster training, swap for
     # SubprocVecEnv with multiple envs (see train_ppo_v2 below).
     if not isinstance(env, (DummyVecEnv, SubprocVecEnv)):
@@ -277,7 +277,7 @@ def create_ppo_agent_v2(
 
     # VecNormalize: normalises observations and rewards online.
     # WHY: The 70-dim obs mixes [-0.5, 0.5] unrealized PnL with
-    # [−∞, +∞] BiLSTM features. Without normalisation the actor/critic
+    # [-inf, +inf] BiLSTM features. Without normalisation the actor/critic
     # networks see wildly different scales and training is unstable.
     env = VecNormalize(
         env,
@@ -287,22 +287,22 @@ def create_ppo_agent_v2(
         clip_reward = 10.0,    # clip extreme rewards
     )
 
-    # ── 2. Linear learning rate schedule ─────────────────────────────────────
+    # -- 2. Linear learning rate schedule -------------------------------------
     # get_linear_fn(start, end, end_fraction) is SB3's built-in scheduler.
-    # The schedule function receives progress_remaining (1.0 → 0.0).
+    # The schedule function receives progress_remaining (1.0 -> 0.0).
     lr_schedule = get_linear_fn(
         start          = LEARNING_RATE_START,
         end            = LEARNING_RATE_END,
         end_fraction   = 1.0,    # reach end_lr at 100% of training
     )
 
-    # ── 3. Policy kwargs ──────────────────────────────────────────────────────
+    # -- 3. Policy kwargs ------------------------------------------------------
     policy_kwargs = dict(
         features_extractor_class  = PassthroughExtractor,
         features_extractor_kwargs = {},       # no kwargs needed
         net_arch                  = NET_ARCH,
         # Tanh activation:
-        #   - Squashes outputs to (-1, 1) → natural for policy logits
+        #   - Squashes outputs to (-1, 1) -> natural for policy logits
         #   - No dying-unit problem (ReLU issue in critic networks)
         #   - Standard choice in Schulman 2017's own PPO experiments
         activation_fn             = nn.Tanh,
@@ -313,7 +313,7 @@ def create_ppo_agent_v2(
         ortho_init                = True,
     )
 
-    # ── 4. Create PPO ─────────────────────────────────────────────────────────
+    # -- 4. Create PPO ---------------------------------------------------------
     model = PPO(
         policy            = 'MlpPolicy',      # plain MLP (not LSTM policy)
         env               = env,
@@ -325,7 +325,7 @@ def create_ppo_agent_v2(
         gae_lambda        = GAE_LAMBDA,
         clip_range        = CLIP_RANGE,
         clip_range_vf     = None,             # don't clip value function separately
-        normalize_advantage = True,           # always — removes reward scale sensitivity
+        normalize_advantage = True,           # always -- removes reward scale sensitivity
         ent_coef          = ENT_COEF,
         vf_coef           = VF_COEF,
         max_grad_norm     = MAX_GRAD_NORM,
@@ -339,9 +339,9 @@ def create_ppo_agent_v2(
     return model
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Training function
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def train_ppo_v2(
     model:            PPO,
@@ -355,7 +355,7 @@ def train_ppo_v2(
     Train the PPO agent with proper callbacks.
 
     Training schedule intuition:
-        500k steps on 17k-candle data ≈ 29 passes through the dataset.
+        500k steps on 17k-candle data ~= 29 passes through the dataset.
         At each step the agent sees one candle. That's plenty for a simple
         3-action trading policy backed by a pre-trained BiLSTM.
 
@@ -372,7 +372,7 @@ def train_ppo_v2(
     """
     save_path = save_path or str(MODELS_DIR)
 
-    # ── callbacks ─────────────────────────────────────────────────────────────
+    # -- callbacks -------------------------------------------------------------
     callbacks = [
         TradeMetricsCallback(),
         EntropyScheduleCallback(
@@ -414,7 +414,7 @@ def train_ppo_v2(
             )
         )
 
-    # ── train ─────────────────────────────────────────────────────────────────
+    # -- train -----------------------------------------------------------------
     model.learn(
         total_timesteps  = total_timesteps,
         callback         = CallbackList(callbacks),
@@ -422,7 +422,7 @@ def train_ppo_v2(
         reset_num_timesteps = True,
     )
 
-    # ── save final model + VecNormalize stats ─────────────────────────────────
+    # -- save final model + VecNormalize stats ---------------------------------
     final_model_path = Path(save_path) / 'ppo_v2_final'
     model.save(str(final_model_path))
     print(f"Model saved -> {final_model_path}.zip")
@@ -436,9 +436,9 @@ def train_ppo_v2(
     return model
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Save / Load helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def save_agent_v2(model: PPO, name: str = 'ppo_v2'):
     """Save model weights and VecNormalize stats."""
@@ -460,7 +460,7 @@ def load_agent_v2(
     """
     Load a saved PPO agent along with its VecNormalize statistics.
 
-    Always load VecNormalize stats — without them the agent will see
+    Always load VecNormalize stats -- without them the agent will see
     un-normalised observations and produce garbage predictions.
     """
     model_path  = MODELS_DIR / f'{name}.zip'
@@ -479,7 +479,7 @@ def load_agent_v2(
         print(f"VecNormalize loaded <- {vn_path}")
     else:
         print(f"WARNING: VecNormalize stats not found at {vn_path}.")
-        print("The agent will see un-normalised observations — predictions unreliable.")
+        print("The agent will see un-normalised observations -- predictions unreliable.")
         vec_env = VecNormalize(env, norm_obs=True, norm_reward=False, training=False)
 
     custom_objects = {
@@ -502,9 +502,9 @@ def load_agent_v2(
     return model, vec_env
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Evaluation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def evaluate_agent_v2(
     model:      PPO,
@@ -570,9 +570,9 @@ def evaluate_agent_v2(
     return metrics
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Quick smoke test
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     import sys
@@ -597,6 +597,6 @@ if __name__ == '__main__':
     print(f"Obs space  : {agent.observation_space}")
     print(f"Action space: {agent.action_space}")
     print(f"Policy     : {agent.policy}")
-    print("\nRunning 2000-step smoke test …")
+    print("\nRunning 2000-step smoke test ...")
     agent.learn(total_timesteps=2000, progress_bar=False)
     print("Smoke test passed.")

@@ -1,7 +1,8 @@
 """
-Paper Trader - Simulated trading on Binance Testnet.
+Paper Trader - Simulated trading on Binance Vision API.
 
 Executes trades through risk manager and logs all activity.
+Uses Binance Vision API for unrestricted public market data (no credentials required).
 """
 import ccxt
 import pandas as pd
@@ -13,7 +14,9 @@ from dataclasses import dataclass, asdict
 import json
 import time
 import sys
-sys.path.append(str(Path(__file__).parent.parent.parent))
+
+# Note: Adjusting sys.path if necessary, but for this snippet we'll keep the logic self-contained
+# sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from config.settings import (
     BINANCE_API_KEY, BINANCE_SECRET_KEY, BINANCE_TESTNET,
@@ -47,7 +50,7 @@ class PaperTrader:
     Paper trading system for testing strategies.
     
     Can operate in two modes:
-    1. Testnet mode: Connects to Binance Testnet
+    1. Vision API mode: Connects to Binance Vision for real prices (No credentials)
     2. Simulation mode: Pure simulation without exchange connection
     """
     
@@ -63,7 +66,7 @@ class PaperTrader:
         
         Args:
             initial_balance: Starting balance in USDT
-            use_testnet: Whether to connect to Binance Testnet
+            use_testnet: Whether to connect to Binance (Vision API)
             symbol: Trading pair
             log_dir: Directory for trade logs
         """
@@ -97,24 +100,37 @@ class PaperTrader:
         }
     
     def _connect_exchange(self):
-        """Connect to Binance Testnet."""
+        """Connect to Binance for public market data (no credentials needed)."""
         try:
             self.exchange = ccxt.binance({
-                'apiKey': BINANCE_API_KEY,
-                'secret': BINANCE_SECRET_KEY,
                 'enableRateLimit': True,
                 'options': {'defaultType': 'spot'}
             })
-            self.exchange.set_sandbox_mode(True)
-            
-            # Test connection
-            balance = self.exchange.fetch_balance()
-            print(f"Connected to Binance Testnet. USDT Balance: {balance.get('USDT', {}).get('free', 0)}")
-            
+
+            # Override the public API URL to use the Vision endpoint
+            # (geo-unrestricted for public market data, no API key required).
+            # CCXT 4.x expects the full base path including /v3.
+            self.exchange.urls['api']['public'] = 'https://data-api.binance.vision/api/v3'
+
+            # Test connection by fetching a ticker
+            ticker = self.exchange.fetch_ticker(self.symbol)
+            print(f"Connected to Binance Vision API. {self.symbol}: ${ticker['last']:,.2f}")
+
         except Exception as e:
-            print(f"Failed to connect to Testnet: {e}")
-            print("Running in simulation mode.")
-            self.exchange = None
+            print(f"Vision API failed ({e}), trying default api.binance.com...")
+            try:
+                # Fallback: standard Binance public API (works in most regions)
+                self.exchange = ccxt.binance({
+                    'enableRateLimit': True,
+                    'options': {'defaultType': 'spot'}
+                })
+                ticker = self.exchange.fetch_ticker(self.symbol)
+                print(f"Connected to Binance API. {self.symbol}: ${ticker['last']:,.2f}")
+            except Exception as e2:
+                print(f"Binance API also failed: {e2}")
+                print("Running in pure simulation mode.")
+                self.exchange = None
+
     
     def get_current_price(self) -> float:
         """Get current market price."""
@@ -358,7 +374,8 @@ class PaperTrader:
 
 if __name__ == "__main__":
     # Test paper trader
-    trader = PaperTrader(initial_balance=10000, use_testnet=False)
+    # By setting use_testnet=True, it will now connect to the Vision API
+    trader = PaperTrader(initial_balance=10000, use_testnet=True)
     
     # Simulate some trades
     prices = [50000, 50500, 51000, 50800, 50200, 49500, 50000]

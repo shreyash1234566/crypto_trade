@@ -1,13 +1,13 @@
 """
-train_bilstm.py — Train the PyTorch BiLSTM with strategy-aware target.
+train_bilstm.py -- Train the PyTorch BiLSTM with strategy-aware target.
 
 What makes this different from train_bilstm_refined.py:
-  1. PyTorch (not TensorFlow) — produces bilstm_best.pt for Phase 4
-  2. 30 rich features (not 5 raw OHLCV) — BiLSTM sees RSI, MACD, EMA crosses
+  1. PyTorch (not TensorFlow) -- produces bilstm_best.pt for Phase 4
+  2. 30 rich features (not 5 raw OHLCV) -- BiLSTM sees RSI, MACD, EMA crosses
   3. Strategy-aware target: predict WHEN the +7.96% entry setup fires
      target = 1 when (EMA8 crosses EMA21) AND (price > EMA200)
      This teaches the BiLSTM to recognize high-quality entry conditions
-     Not lookahead bias — uses only current candle data
+     Not lookahead bias -- uses only current candle data
 
 Run: python train_bilstm.py
 Output: models_saved/bilstm_best.pt
@@ -57,7 +57,7 @@ TRAIN_FRAC = 0.80
 
 
 print("\n" + "="*55)
-print("  STEP 1 — Load data")
+print("  STEP 1 -- Load data")
 print("="*55)
 assert DATA_PATH.exists(), f"ERROR: {DATA_PATH} not found"
 raw = pd.read_csv(DATA_PATH)
@@ -65,17 +65,17 @@ print(f"  {len(raw):,} rows  (~{len(raw)//24} days)")
 
 
 print("\n" + "="*55)
-print("  STEP 2 — Build 30 strategy features (no pandas_ta)")
+print("  STEP 2 -- Build 30 strategy features (no pandas_ta)")
 print("="*55)
 df = build_features(raw)
 feat_cols = [c for c in BILSTM_FEATURES if c in df.columns]
 print(f"  Using {len(feat_cols)} features")
 print(f"  Target: strategy entry signal")
-print(f"  Positive rate: {df['target'].mean():.2%}  (entries are rare — correct)")
+print(f"  Positive rate: {df['target'].mean():.2%}  (entries are rare -- correct)")
 
 
 print("\n" + "="*55)
-print("  STEP 3 — Train/val split")
+print("  STEP 3 -- Train/val split")
 print("="*55)
 n      = len(df)
 split  = int(n * TRAIN_FRAC)
@@ -98,7 +98,7 @@ print(f"  Train batches: {len(train_loader)}   Val batches: {len(val_loader)}")
 
 
 print("\n" + "="*55)
-print("  STEP 4 — Build BiLSTM model")
+print("  STEP 4 -- Build BiLSTM model")
 print("="*55)
 model    = BiLSTMFeatureExtractor(input_size=len(feat_cols), use_attention=True, dropout=0.35)
 n_params = sum(p.numel() for p in model.parameters())
@@ -115,7 +115,7 @@ print(f"  State shape: {s.shape}  Pred shape: {p.shape}  [OK]")
 
 
 print("\n" + "="*55)
-print("  STEP 5 — Class weights (rare entry = imbalanced classes)")
+print("  STEP 5 -- Class weights (rare entry = imbalanced classes)")
 print("="*55)
 # Strategy entries are rare (~2-5% of candles)
 # Weight the positive class heavily so BiLSTM learns to find entries
@@ -130,7 +130,7 @@ print(f"  Entry rate: {pos_rate:.2%}  Weight pos: {w_pos:.2f} (scaled by {args.w
 
 
 print("\n" + "="*55)
-print(f"  STEP 6 — Train (max {EPOCHS} epochs, patience={PATIENCE})")
+print(f"  STEP 6 -- Train (max {EPOCHS} epochs, patience={PATIENCE})")
 print("="*55)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -150,7 +150,7 @@ history = train_bilstm(
 )
 
 print("\n" + "="*55)
-print("  STEP 7 — Verify saved file")
+print("  STEP 7 -- Verify saved file")
 print("="*55)
 best_pt = MODELS_DIR / 'bilstm_best.pt'
 assert best_pt.exists(), f"ERROR: {best_pt} not created"

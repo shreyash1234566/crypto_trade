@@ -398,8 +398,8 @@ def evaluate_agent(
     }
     
     print("\nEvaluation Results:")
-    print(f"  Mean Reward: {metrics['mean_reward']:.2f} ± {metrics['std_reward']:.2f}")
-    print(f"  Mean Return: {metrics['mean_return']*100:.2f}% ± {metrics['std_return']*100:.2f}%")
+    print(f"  Mean Reward: {metrics['mean_reward']:.2f} +/- {metrics['std_reward']:.2f}")
+    print(f"  Mean Return: {metrics['mean_return']*100:.2f}% +/- {metrics['std_return']*100:.2f}%")
     print(f"  Mean Trades: {metrics['mean_trades']:.1f}")
     print(f"  Win Rate: {metrics['win_rate']*100:.1f}%")
     

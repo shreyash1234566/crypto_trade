@@ -1,16 +1,16 @@
 """
-features_v2.py — All indicators in pure pandas/numpy. No pandas_ta needed.
+features_v2.py -- All indicators in pure pandas/numpy. No pandas_ta needed.
 
 Key findings from report_OptimizedTrend_BTC_USDT.txt (+7.96% ROI):
-  Win rate:       42.2%  ← LOW win rate is FINE
-  Win/Loss ratio: 2.527  ← wins are 2.5x bigger than losses
-  Profit Factor:  1.842  ← for every $1 lost, makes $1.84
-  Max Drawdown:   5.96%  ← very controlled
+  Win rate:       42.2%  <- LOW win rate is FINE
+  Win/Loss ratio: 2.527  <- wins are 2.5x bigger than losses
+  Profit Factor:  1.842  <- for every $1 lost, makes $1.84
+  Max Drawdown:   5.96%  <- very controlled
 
   The 3 rules that make this work:
-  1. price > EMA200  → master regime filter (no bear market trades)
-  2. EMA8 crosses above EMA21 → fresh momentum (cross, not continuation)
-  3. Exit when price < EMA21 → trailing stop cuts losses fast
+  1. price > EMA200  -> master regime filter (no bear market trades)
+  2. EMA8 crosses above EMA21 -> fresh momentum (cross, not continuation)
+  3. Exit when price < EMA21 -> trailing stop cuts losses fast
 
 Place at: src/data/features_v2.py
 """
@@ -72,11 +72,11 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     c, h, lo, v = df['close'], df['high'], df['low'], df['volume']
 
-    # ── EMAs ──────────────────────────────────────────────────────────────────
+    # -- EMAs ------------------------------------------------------------------
     for span in [8, 13, 21, 34, 55, 89, 200]:
         df[f'ema{span}'] = _ema(c, span)
 
-    # ── THE 3 RULES from optimized_trend.py ───────────────────────────────────
+    # -- THE 3 RULES from optimized_trend.py -----------------------------------
     # Rule 1: Regime filter
     df['price_above_200']   = (c > df['ema200']).astype(int)
     # Rule 2: Fresh momentum cross
@@ -92,7 +92,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['ema21_55_cross'] = (df['ema21'] > df['ema55']).astype(int)
     df['ema_slope']      = (df['ema21'] - df['ema21'].shift(5)) / df['ema21'].shift(5) * 100
 
-    # ── RSI ───────────────────────────────────────────────────────────────────
+    # -- RSI -------------------------------------------------------------------
     df['rsi']      = _rsi(c, 14)
     df['rsi_fast'] = _rsi(c, 7)
     df['rsi_slow'] = _rsi(c, 21)
@@ -100,7 +100,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['rsi_overbought'] = (df['rsi'] > 65).astype(int)
     df['rsi_neutral']    = ((df['rsi'] >= 45) & (df['rsi'] <= 65)).astype(int)
 
-    # ── MACD (12,26,9) ────────────────────────────────────────────────────────
+    # -- MACD (12,26,9) --------------------------------------------------------
     m, ms, mh = _macd(c, 12, 26, 9)
     df['macd']             = m
     df['macd_signal']      = ms
@@ -108,17 +108,17 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['macd_bull']        = (m > ms).astype(int)
     df['macd_hist_rising'] = (mh > mh.shift(1)).astype(int)
 
-    # ── MACD research-optimal (17,21,15) ──────────────────────────────────────
+    # -- MACD research-optimal (17,21,15) --------------------------------------
     mo, mos, _ = _macd(c, 17, 21, 15)
     df['macd_opt']        = mo
     df['macd_opt_signal'] = mos
 
-    # ── ATR ───────────────────────────────────────────────────────────────────
+    # -- ATR -------------------------------------------------------------------
     df['atr']       = _atr(h, lo, c, 14)
     df['atr_pct']   = df['atr'] / c * 100
     df['atr_ratio'] = df['atr'] / df['atr'].rolling(20).mean()
 
-    # ── Bollinger Bands ───────────────────────────────────────────────────────
+    # -- Bollinger Bands -------------------------------------------------------
     bbl, bbm, bbu  = _bb(c, 20, 2.0)
     df['bb_lower'] = bbl
     df['bb_mid']   = bbm
@@ -127,16 +127,16 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['bb_width'] = (bbu - bbl) / bbm * 100
     df['bb_squeeze'] = (df['bb_width'] < df['bb_width'].rolling(20).mean()).astype(int)
 
-    # ── Stochastic ────────────────────────────────────────────────────────────
+    # -- Stochastic ------------------------------------------------------------
     df['stoch_k'], df['stoch_d'] = _stoch(h, lo, c)
     df['stoch_oversold'] = (df['stoch_k'] < 25).astype(int)
 
-    # ── ADX ───────────────────────────────────────────────────────────────────
+    # -- ADX -------------------------------------------------------------------
     df['adx'], df['di_plus'], df['di_minus'] = _adx(h, lo, c, 14)
     df['strong_trend'] = (df['adx'] > 25).astype(int)
     df['di_bull']      = (df['di_plus'] > df['di_minus']).astype(int)
 
-    # ── Volume ────────────────────────────────────────────────────────────────
+    # -- Volume ----------------------------------------------------------------
     df['volume_sma20'] = v.rolling(20).mean()
     df['volume_ratio'] = v / df['volume_sma20']
     df['high_volume']  = (df['volume_ratio'] > 1.5).astype(int)
@@ -144,7 +144,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['obv_ema']      = _ema(df['obv'], 20)
     df['obv_bull']     = (df['obv'] > df['obv_ema']).astype(int)
 
-    # ── Price action ──────────────────────────────────────────────────────────
+    # -- Price action ----------------------------------------------------------
     df['body_ratio'] = (c - df['open']).abs() / (h - lo).replace(0, np.nan)
     df['is_bullish'] = (c > df['open']).astype(int)
     df['roc5']       = c.pct_change(5) * 100
@@ -152,7 +152,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['close_z20']  = (c - c.rolling(20).mean()) / c.rolling(20).std()
     df['close_z50']  = (c - c.rolling(50).mean()) / c.rolling(50).std()
 
-    # ── Normalised versions for BiLSTM input ──────────────────────────────────
+    # -- Normalised versions for BiLSTM input ----------------------------------
     w = 252
     df['rsi_norm']          = _norm(df['rsi'], w)
     df['macd_hist_norm']    = _norm(df['macd_hist'], w)
@@ -169,12 +169,12 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df['log_return_norm']   = _norm(df['log_return'], w)
     df['volatility_norm']   = _norm(df['log_return'].rolling(20).std(), w)
 
-    # ── Target for BiLSTM ─────────────────────────────────────────────────────
+    # -- Target for BiLSTM -----------------------------------------------------
     # Target: meaningful price move (1.5% in 12 candles) in bull regime
-    # Old target (0.3% in 3 candles) was noise — BTC moves that much randomly
+    # Old target (0.3% in 3 candles) was noise -- BTC moves that much randomly
     forward_return = df['close'].shift(-12) / df['close'] - 1
     df['target'] = (
-        (forward_return > 0.015) &               # 1.5% upside (was 0.3% — too noisy)
+        (forward_return > 0.015) &               # 1.5% upside (was 0.3% -- too noisy)
         (df['price_above_200'] == 1) &            # bull regime
         (df['rsi'] < 70)                          # not already overbought
     ).astype(float)
@@ -193,10 +193,10 @@ BILSTM_FEATURES = [
     'stoch_k_norm', 'roc5_norm', 'roc20_norm',
     'ema_slope_norm', 'macd_opt_norm',
     'close_z20', 'close_z50',
-    # Binary signals (0/1) — directly learnable patterns
-    'price_above_200',    # ← master regime filter
-    'ema8_21_cross',      # ← the fresh momentum signal
-    'price_above_ema21',  # ← trailing stop condition
+    # Binary signals (0/1) -- directly learnable patterns
+    'price_above_200',    # <- master regime filter
+    'ema8_21_cross',      # <- the fresh momentum signal
+    'price_above_ema21',  # <- trailing stop condition
     'ema8_34_cross', 'ema21_55_cross',
     'macd_bull', 'macd_hist_rising',
     'rsi_oversold', 'rsi_overbought', 'rsi_neutral',
@@ -206,9 +206,9 @@ BILSTM_FEATURES = [
 
 # Strategy features added directly to PPO observation (gives PPO regime awareness)
 PPO_STRATEGY_FEATURES = [
-    'price_above_200',    # bear/bull regime — most important
+    'price_above_200',    # bear/bull regime -- most important
     'ema8_21_cross',      # fresh entry signal
-    'price_above_ema21',  # trailing stop — exit signal
+    'price_above_ema21',  # trailing stop -- exit signal
     'adx_norm',           # trend strength
     'rsi_norm',           # momentum state
     'bb_pct_norm',        # mean reversion position

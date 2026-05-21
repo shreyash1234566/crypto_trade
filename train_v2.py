@@ -1,15 +1,15 @@
 """
-train_v2.py — End-to-end: BiLSTM + PPO trained on +7.96% strategy signals.
+train_v2.py -- End-to-end: BiLSTM + PPO trained on +7.96% strategy signals.
 
 Run AFTER train_bilstm.py:
-    python train_bilstm.py   ← trains BiLSTM, saves bilstm_best.pt
-    python train_v2.py       ← trains PPO on top, saves ppo_v3_final.zip
+    python train_bilstm.py   <- trains BiLSTM, saves bilstm_best.pt
+    python train_v2.py       <- trains PPO on top, saves ppo_v3_final.zip
 
 What the PPO learns from the +7.96% strategy:
   - Never go long when price < EMA200  (regime penalty in reward)
   - Exit when price drops below EMA21  (trailing stop penalty)
-  - Enter on EMA8×EMA21 cross + regime (entry bonus in reward)
-  - Win rate 42% is OK if wins are 2.5× bigger than losses
+  - Enter on EMA8xEMA21 cross + regime (entry bonus in reward)
+  - Win rate 42% is OK if wins are 2.5x bigger than losses
 """
 
 import sys
@@ -133,7 +133,7 @@ if isinstance(train_vec, VecNormalize):
     test_vecnorm.obs_rms = train_vec.obs_rms
 
 metrics = evaluate_agent_v2(agent, test_vecnorm, n_episodes=N_EVAL_EPISODES)
-print(f"\n  Return:   {metrics['mean_return']*100:+.2f}% ± {metrics['std_return']*100:.2f}%")
+print(f"\n  Return:   {metrics['mean_return']*100:+.2f}% +/- {metrics['std_return']*100:.2f}%")
 print(f"  Win Rate: {metrics['win_rate']*100:.1f}%")
 print(f"  Trades:   {metrics['mean_trades']:.1f}")
 print(f"  Sharpe:   {metrics['sharpe_approx']:.3f}")

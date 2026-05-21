@@ -71,7 +71,7 @@ print(f'Hold (1): {np.sum(actions_arr == 1):5d} ({100*np.sum(actions_arr == 1)/l
 print(f'Sell (2): {np.sum(actions_arr == 2):5d} ({100*np.sum(actions_arr == 2)/len(actions_arr):5.1f}%)')
 
 # ================================================================
-# DIRECTIONAL ACCURACY — The core metric for 70-75% target
+# DIRECTIONAL ACCURACY -- The core metric for 70-75% target
 # ================================================================
 print(f'\n{"="*60}')
 print('DIRECTIONAL ACCURACY (Next-Candle Prediction)')
@@ -86,7 +86,7 @@ total_by_class = {'up': 0, 'down': 0}
 for i in range(len(actions_arr)):
     action = actions_arr[i]
     
-    # Skip Hold actions — they don't make a directional prediction
+    # Skip Hold actions -- they don't make a directional prediction
     if action == 1:
         continue
     
@@ -133,9 +133,9 @@ if total_dir > 0:
     elif dir_accuracy >= 0.70:
         print(f'\n🎯 TARGET ACHIEVED: {dir_accuracy:.1%} ∈ [70%, 75%]')
     elif dir_accuracy >= 0.60:
-        print(f'\n📈 PROGRESS: {dir_accuracy:.1%} — approaching 70% target')
+        print(f'\n📈 PROGRESS: {dir_accuracy:.1%} -- approaching 70% target')
     else:
-        print(f'\n⚠️  BELOW TARGET: {dir_accuracy:.1%} — needs improvement')
+        print(f'\n[WARN]  BELOW TARGET: {dir_accuracy:.1%} -- needs improvement')
 else:
     print('No directional predictions made (all Hold actions)')
 
